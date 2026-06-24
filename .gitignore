@@ -1,0 +1,19 @@
+# local config (copied from .env.example)
+.env
+
+# research store (may hold private findings); see .research/INDEX.md
+.research/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# model weights and run artifacts never live in git
+models/
+*.gguf
+
+# os
+.DS_Store

@@ -1,0 +1,95 @@
+name: llama-vulkan-strix
+
+# llama.cpp OpenAI-compatible server on the Vulkan backend, for testing GGUF
+# models on an AMD Strix Halo APU (gfx1151). Config lives in ./.env
+# (cp .env.example .env). Models are mounted read-only from MODELS_DIR.
+#
+# Services:
+#   llm        - ghcr.io/ggml-org/llama.cpp:server-vulkan (always on)
+#   websearch  - optional websearch-skill MCP server over HTTP (profile: tools)
+#
+# The base stack is one pulled image, no build. The websearch sidecar only
+# builds/starts when you opt in: `docker compose --profile tools up -d`.
+
+services:
+  llm:
+    image: ghcr.io/ggml-org/llama.cpp:server-vulkan
+    container_name: llama-vulkan
+    restart: unless-stopped
+    # Vulkan needs the render node only. No /dev/kfd, no ROCm, no privileged.
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${RENDER_GID:-990}"
+      - "${VIDEO_GID:-44}"
+    environment:
+      # Force model weights into GTT (the 128 GB unified RAM), not the small BIOS
+      # VRAM carve-out. llama.cpp treats this as a PRESENCE check: ANY value (even
+      # 0) enables it, so it is set to 1 and left on by design. On gfx1151 the
+      # Vulkan backend is UMA and already prefers host-visible/GTT memory; this
+      # makes it explicit and guaranteed. Proof: scripts/verify-gtt.sh.
+      - GGML_VK_PREFER_HOST_MEMORY=1
+    volumes:
+      - ${MODELS_DIR:-./models}:/models:ro
+    ports:
+      - "${LLM_PORT:-8080}:8080"
+    # list form avoids shell-quoting issues; the image entrypoint is llama-server
+    command:
+      - --model
+      # fail loud at `up`/`config` if LLM_MODEL is blank, instead of passing
+      # llama-server a bare /models/ directory and erroring cryptically at load
+      - /models/${LLM_MODEL:?set LLM_MODEL in .env to a GGUF file path relative to MODELS_DIR}
+      - --alias
+      - ${LLM_ALIAS:-llm}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --n-gpu-layers
+      - "${LLM_NGL:-99}"
+      - --ctx-size
+      - "${LLM_CTX:-32768}"
+      - --parallel
+      - "${LLM_PARALLEL:-1}"
+      - --jinja
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 40
+      start_period: 300s
+    networks:
+      - llmnet
+
+  # websearch: hec-ovi/websearch-skill MCP server, served over HTTP so the models
+  # under test (or any MCP client on this network / the host) can call
+  # web_search / web_fetch as a tool. Endpoint: http://localhost:${WEBSEARCH_PORT}/mcp
+  # Opt-in only: `docker compose --profile tools up -d` (or set COMPOSE_PROFILES=tools).
+  websearch:
+    build:
+      context: .
+      dockerfile: tools/Dockerfile.websearch
+    image: llama-vulkan-strix-websearch:latest
+    container_name: websearch-mcp
+    profiles: ["tools"]
+    restart: unless-stopped
+    environment:
+      - WEBSEARCH_MCP_HOST=0.0.0.0
+      - WEBSEARCH_MCP_PORT=8000
+      # store so web_open can page through an already-fetched doc across calls
+      - WEBSEARCH_PERSIST_PATH=/data/store.sqlite
+      # optional: fuse a SearXNG instance as a second engine
+      # - WEBSEARCH_SEARXNG_URL=http://searxng:8080
+    volumes:
+      - websearch-data:/data
+    ports:
+      - "${WEBSEARCH_PORT:-8000}:8000"
+    networks:
+      - llmnet
+
+networks:
+  llmnet:
+    driver: bridge
+
+volumes:
+  websearch-data:
