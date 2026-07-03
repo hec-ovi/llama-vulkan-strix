@@ -52,6 +52,8 @@ services:
       - --parallel
       - "${LLM_PARALLEL:-1}"
       - --jinja
+      - --chat-template-kwargs
+      - '{"enable_thinking": true}'
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
       interval: 30s
