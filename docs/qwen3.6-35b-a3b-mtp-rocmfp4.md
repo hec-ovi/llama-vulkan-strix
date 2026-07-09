@@ -66,7 +66,7 @@ The "~4355 t/s prefill" figure floating around for this model is **not a Strix H
 
 ## Decode depends on MTP acceptance
 
-MTP self-speculation drafts tokens with the model's own head and verifies them against the target model. Its speedup scales with how predictable the text is: the numbers above use mixed technical prose; highly novel text lands lower. Treat decode as a band, roughly 100 to 120 t/s at these depths, not a fixed number. Sampling temperature adds run-to-run noise on top.
+MTP self-speculation drafts tokens with the model's own head and verifies them against the target model. Its speedup scales with how predictable the text is. The table above uses mixed technical prose (101-119 t/s); natural chat through `/v1/chat/completions`, with reasoning enabled and free-form answers (a concept question, then code generation, 1.1k-2k tokens each), measured 77-86 t/s. Treat decode as a band, roughly 75 to 120 t/s depending on content, not a fixed number. Sampling temperature adds run-to-run noise on top.
 
 ## Memory
 

@@ -104,7 +104,7 @@ Measured throughput at 2k to 32k context, next to the other models on this box, 
 
 ## Benchmarks
 
-All on the same idle Strix Halo box (Radeon 8060S, RADV `STRIX_HALO`, mesa 26.0.3), measured 2026-07-09 through the actual served stack: Vulkan compute (`-dev Vulkan0`), f16 KV, `-ub 1024`, MTP on, fresh prompts against `/completion`, generation forced to 128 tokens, best of 3 per point. The arrow spans 2k context to the deepest depth measured for that model (in parentheses). MTP decode is content-dependent (draft acceptance), so treat it as a band, not a fixed number: the 27B swung 23 to 39 t/s across reps of the same config.
+All on the same idle Strix Halo box (Radeon 8060S, RADV `STRIX_HALO`, mesa 26.0.3), measured 2026-07-09 through the actual served stack: Vulkan compute (`-dev Vulkan0`), f16 KV, `-ub 1024`, MTP on, fresh prompts against `/completion`, generation forced to 128 tokens, best of 3 per point. The arrow spans 2k context to the deepest depth measured for that model (in parentheses). MTP decode is content-dependent (draft acceptance), so treat it as a band, not a fixed number: the 27B swung 23 to 39 t/s across reps of the same config, and real chat (reasoning plus code generation, natural stop) lands the 35B at 77-86 t/s versus the table's 101-119 on predictable prose.
 
 | Model | Active / total | Quant | MTP | Prefill (t/s) | Decode (t/s) |
 |---|---|---|:--:|--:|--:|
