@@ -7,38 +7,87 @@
 # ghcr.io/ggml-org/llama.cpp:server-vulkan image cannot read them. You have to
 # build the fork.
 #
-# Compute still runs on Vulkan at runtime (llama-server -dev Vulkan0, which the
-# model card says beats ROCm for ROCmFP4 on Strix Halo). ROCm is here only
-# because the fork's build enables the HIP backend (-DGGML_HIP=ON) and the binary
-# initialises HIP at startup, so the ROCm runtime + /dev/kfd must be present.
+# Base: ubuntu:26.04 LTS + TheRock ROCm 7.13 (pinned dist tarball), replacing the
+# fork-tested rocm/dev-ubuntu-24.04:7.2.1 image. Why:
+#   - gfx1151 (Strix Halo) enters ROCm's support matrix at 7.13, and 7.13 ships
+#     only as TheRock tarballs (therock-dist-linux-gfx1151-*.tar.gz); there is no
+#     rocm/dev-ubuntu image for it. With 7.13 the HSA_OVERRIDE_GFX_VERSION
+#     workaround is no longer needed.
+#   - 26.04 ships mesa 26.0.3 (RADV) and glslc 2026.1. The 24.04-based image
+#     compiled the Vulkan shaders with a 2023-era glslc, and the resulting binary
+#     reports "int dot: 0": the integer-dot-product matmul variants for quantized
+#     tensors never got compiled in. A current glslc fixes that at build time.
+#   - The pin is the LAST 7.13 nightly (2026-05-15, same commit the therock-7.13
+#     tag points at); after that date the nightly line rolled to 7.14. TheRock
+#     has no plain "7.13.0" stable artifact, so a dated pin is as stable as this
+#     line gets. Same pinning approach as comfyui-strix-docker, which runs the
+#     torch wheels of this exact line (+rocm7.13.0a<date>) on the same box.
 #
-# Recipe mirrors the fork's own .devops/strix-rocmfp4.Dockerfile (same base,
-# same deps, same build script), with two changes: it git-clones the pinned
-# branch instead of COPY . (so the build context stays tiny), and it keeps only
-# the server stage.
-#
-# Base image is overridable: gfx1151 is not in ROCm's official support matrix
-# until 7.13, but there is no rocm/dev-ubuntu-24.04:7.13 image (highest is 7.2.4)
-# and TheRock 7.13 ships as tarballs, not a FROM base. Vulkan does the math here,
-# so a newer ROCm buys nothing at runtime and only risks breaking the fork build.
-# Default is the fork-tested 7.2.1-complete; bump BASE_ROCM_DEV_CONTAINER to
-# 7.2.4-complete (newest 7.2) or a TheRock layer if you want to experiment.
+# The fork build compiles BOTH backends (-DGGML_HIP=ON -DGGML_VULKAN=ON, its own
+# build script), so the runtime can serve on either -dev ROCm0 or -dev Vulkan0.
+# Recipe otherwise mirrors the fork's .devops/strix-rocmfp4.Dockerfile (same
+# deps, same build script), but git-clones the pinned branch instead of COPY .
+# and keeps only the server stage.
 
-ARG BASE_ROCM_DEV_CONTAINER=rocm/dev-ubuntu-24.04:7.2.1-complete
+ARG UBUNTU_BASE=ubuntu:26.04
+ARG THEROCK_VERSION=7.13.0a20260515
+ARG THEROCK_URL_BASE=https://therock-nightly-tarball.s3.amazonaws.com
+
 ARG ROCMFP4_REPO=https://github.com/charlie12345/rocmfp4-llama.git
 ARG ROCMFP4_REF=mtp-rocmfp4-strix
 
-FROM ${BASE_ROCM_DEV_CONTAINER} AS build
+# --- TheRock ROCm SDK, one cached layer -------------------------------------
+FROM ${UBUNTU_BASE} AS therock
+
+ARG THEROCK_VERSION
+ARG THEROCK_URL_BASE
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# The dist tarball is rooted at ./ (include/, lib/, bin/ at top level), so it
+# extracts straight into /opt/rocm with no --strip-components.
+RUN mkdir -p /opt/rocm \
+    && curl -fL --retry 3 \
+    "${THEROCK_URL_BASE}/therock-dist-linux-gfx1151-${THEROCK_VERSION}.tar.gz" \
+    | tar -xz -C /opt/rocm
+
+# Pruned runtime copy for the server stage. Keeps what the fork's libggml-hip
+# actually links (per ldd: amdhip64, hsa-runtime64, rocblas/hipblas, hipblaslt,
+# rocsolver, rocroller, comgr, rocprofiler-register, roctx) plus the gfx1151
+# kernel libraries and TheRock's bundled sysdeps (lib/rocm_sysdeps: libdrm,
+# libelf, libnuma, ...). Drops the LLVM toolchain, static CK archives, and the
+# MIOpen/IREE/RCCL/RDC stack llama.cpp never loads: ~7 GB of the 8 GB lib tree.
+# Pruning HERE (not after a COPY in the server stage) is what actually keeps
+# the final image small: a COPY layer keeps its bytes no matter what a later
+# RUN deletes.
+RUN cp -a /opt/rocm/lib /opt/rocm-runtime-lib \
+    && rm -rf /opt/rocm-runtime-lib/llvm /opt/rocm-runtime-lib/cmake \
+    /opt/rocm-runtime-lib/pkgconfig /opt/rocm-runtime-lib/*.a \
+    /opt/rocm-runtime-lib/libMIOpen* /opt/rocm-runtime-lib/libIREECompiler* \
+    /opt/rocm-runtime-lib/librccl* /opt/rocm-runtime-lib/rdc \
+    /opt/rocm-runtime-lib/host-math \
+    # TheRock links comgr/rocroller against SHARED LLVM (classic ROCm statics
+    # these), so the runtime needs llvm/lib's .so files (~220 MB) even though
+    # the rest of the 2.8 GB llvm tree (static archives, clang binaries) goes.
+    && mkdir -p /opt/rocm-runtime-lib/llvm/lib \
+    && cp -a /opt/rocm/lib/llvm/lib/*.so* /opt/rocm-runtime-lib/llvm/lib/
+
+# --- build the fork ----------------------------------------------------------
+FROM ${UBUNTU_BASE} AS build
 
 ARG CMAKE_HIP_ARCHITECTURES=gfx1151
 ARG ROCMFP4_REPO
 ARG ROCMFP4_REF
 
-# Build deps are the fork's exact list: HIP toolchain comes with the base image;
-# glslc + libvulkan-dev + spirv-headers are for the Vulkan shader compile.
+# The fork's exact build-dep list; the HIP toolchain now comes from TheRock
+# instead of the base image. glslc 2026.1 + current libvulkan-dev/spirv-headers
+# are the point of the 26.04 base (see header).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     build-essential \
+    ca-certificates \
     cmake \
     curl \
     git \
@@ -52,13 +101,21 @@ RUN apt-get update \
     spirv-headers \
     && rm -rf /var/lib/apt/lists/*
 
+COPY --from=therock /opt/rocm /opt/rocm
+ENV ROCM_PATH=/opt/rocm \
+    HIP_PATH=/opt/rocm \
+    PATH=/opt/rocm/bin:$PATH \
+    LD_LIBRARY_PATH=/opt/rocm/lib
+
 WORKDIR /app
 
 # Pinned branch of the fork. --depth 1: the build needs no history, and the fork
 # (like upstream llama.cpp) vendors its deps, so no submodule init is required.
 RUN git clone --depth 1 --branch "${ROCMFP4_REF}" "${ROCMFP4_REPO}" .
 
-# The fork's own build invocation: HIP + Vulkan on, CUDA off, targeting gfx1151.
+# The fork's own build invocation (HIP + Vulkan on, CUDA off, gfx1151), with
+# HIPCXX resolved through TheRock's hipconfig exactly like the fork's Dockerfile
+# resolves it through the ROCm image's.
 RUN HIPCXX="$(hipconfig -l)/clang" HIP_PATH="$(hipconfig -R)" \
     GGML_HIP_ROCWMMA_FATTN=OFF \
     CMAKE_HIP_ARCHITECTURES="${CMAKE_HIP_ARCHITECTURES}" \
@@ -68,18 +125,17 @@ RUN HIPCXX="$(hipconfig -l)/clang" HIP_PATH="$(hipconfig -R)" \
 RUN mkdir -p /app/lib \
     && find build-strix-rocmfp4 -name "*.so*" -exec cp -P {} /app/lib \;
 
-FROM ${BASE_ROCM_DEV_CONTAINER} AS server
+# --- runtime -----------------------------------------------------------------
+FROM ${UBUNTU_BASE} AS server
 
-# Runtime adds the mesa Vulkan driver (RADV, which owns gfx1151) on top of the
-# ROCm runtime already in the base image. Same package set as the fork's Dockerfile.
+# mesa-vulkan-drivers is the RADV driver that owns gfx1151 (the -dev Vulkan0
+# path). The ROCm side's system deps (libdrm, libelf, libnuma, ...) come
+# bundled in TheRock's lib/rocm_sysdeps, not from apt. curl is for the
+# healthcheck.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     curl \
-    libegl1 \
-    libgl1 \
-    libgles2 \
-    libglvnd0 \
-    libglx0 \
+    libatomic1 \
     libgomp1 \
     libvulkan1 \
     mesa-vulkan-drivers \
@@ -87,12 +143,26 @@ RUN apt-get update \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+# ROCm runtime, pruned in the therock stage (see there for why).
+COPY --from=therock /opt/rocm-runtime-lib /opt/rocm/lib
+
 # llama-server and its .so's both live in /app; the binary's rpath is $ORIGIN,
-# and LD_LIBRARY_PATH makes that explicit and guaranteed.
+# and LD_LIBRARY_PATH makes that explicit and guaranteed. /opt/rocm/lib serves
+# the HIP backend the binary initialises at startup.
 ENV LLAMA_ARG_HOST=0.0.0.0
-ENV LD_LIBRARY_PATH=/app
+ENV LD_LIBRARY_PATH=/app:/opt/rocm/lib
 COPY --from=build /app/lib/ /app/
 COPY --from=build /app/build-strix-rocmfp4/bin/llama-server /app/
+# llama-bench and llama-cli ride along so you can benchmark and poke the model
+# from inside the same image (the build stage produced them anyway).
+COPY --from=build /app/build-strix-rocmfp4/bin/llama-bench /app/
+COPY --from=build /app/build-strix-rocmfp4/bin/llama-cli /app/
+
+# Fail the build, not the container, if any runtime link is unresolvable in the
+# PRUNED tree (this is what caught TheRock's shared-LLVM dependency). ldd walks
+# the transitive closure, so the HIP chain (amdhip64 -> comgr -> libLLVM) is
+# covered from the server binary alone.
+RUN ldd /app/llama-server | (! grep "not found")
 
 WORKDIR /app
 

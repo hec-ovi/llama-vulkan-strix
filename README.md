@@ -80,7 +80,7 @@ uvx --from git+https://github.com/hec-ovi/websearch-skill websearch web-search "
 
 [plunderstruck](https://huggingface.co/collections/plunderstruck/rocmfp4-mtp-strix-halo)'s Qwen3.6 GGUFs use custom `Q4_0_ROCMFP4` tensor types that upstream llama.cpp does not know about, so the stock `server-vulkan` image cannot load them. Running them means building the [charlie12345/rocmfp4-llama](https://github.com/charlie12345/rocmfp4-llama) fork (branch `mtp-rocmfp4-strix`) from source. That is a different animal from the base stack, so it lives in its own file, `docker-compose.rocmfp4.yml`, and leaves the base stack and its "no ROCm" guarantee untouched.
 
-The math still runs on Vulkan. The run command uses `-dev Vulkan0` (RADV / mesa), which the model card says beats the ROCm backend for ROCmFP4 on Strix Halo. ROCm is in the image only because the fork compiles the HIP backend in and the binary initializes it at startup, which is why this stack mounts `/dev/kfd` where the base stack does not. The ROCm version therefore does not touch inference speed here; it is a build and init dependency, not the compute path. The default base is the fork-tested `rocm/dev-ubuntu-24.04:7.2.1-complete`, overridable with `ROCMFP4_BASE_IMAGE`.
+The image is built from `ubuntu:26.04` LTS with a pinned [TheRock](https://github.com/ROCm/TheRock) ROCm 7.13 dist tarball (`ROCMFP4_THEROCK_VERSION` in `.env`, default `7.13.0a20260515`, the last 7.13 nightly). 7.13 is the first ROCm line with gfx1151 in the support matrix, so the old `HSA_OVERRIDE_GFX_VERSION` workaround is gone. The 26.04 toolchain also matters for speed: its current `glslc` compiles the Vulkan integer-dot shader variants the old 24.04 base silently skipped (the binary now reports `int dot: 1`), and the runtime carries mesa 26.0.3 RADV. Both backends are compiled in, so `-dev Vulkan0` and `-dev ROCm0` both work at runtime; the compose file mounts `/dev/dri` and `/dev/kfd` because the HIP-linked binary initializes ROCm at startup either way. The runtime image keeps the pruned ROCm libs it actually loads (~2.5 GB total), not the full SDK.
 
 The point of these builds is MTP self-speculative decoding: the model drafts its own tokens through a built-in MTP head (`--spec-type draft-mtp`), running on the same Vulkan device.
 
@@ -98,19 +98,21 @@ docker compose -f docker-compose.rocmfp4.yml up -d --build
 docker compose -f docker-compose.rocmfp4.yml logs -f rocmfp4-llm
 ```
 
-It serves the OpenAI API on `:8081` (host), separate from the base stack's port. `ROCMFP4_MODEL`, `ROCMFP4_CTX` (model max is 262144), the base image, and the gfx target are all in `.env`. Vision is off by default; add `--mmproj /models/Qwen3.6-35B-A3B-MTP-ROCmFP4/mmproj-F32.gguf` to the command to enable the Qwen3-VL projector. `scripts/verify-gtt.sh --min-gtt-mib 18000` proves the load is in GTT here too (pass `LLM_PORT=8081` so it polls the right health endpoint).
+It serves the OpenAI API on `:8081` (host), separate from the base stack's port. `ROCMFP4_MODEL`, `ROCMFP4_CTX` (model max is 262144), the TheRock pin, and the gfx target are all in `.env`. Vision is off by default; add `--mmproj /models/Qwen3.6-35B-A3B-MTP-ROCmFP4/mmproj-F32.gguf` to the command to enable the Qwen3-VL projector. `scripts/verify-gtt.sh --min-gtt-mib 18000` proves the load is in GTT here too (pass `LLM_PORT=8081` so it polls the right health endpoint).
 
 Measured throughput at 2k to 32k context, next to the other models on this box, is in [Benchmarks](#benchmarks) below (full per-model detail in [docs/](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md)).
 
 ## Benchmarks
 
-All on the same idle Strix Halo box (Radeon 8060S, RADV GFX1151), Vulkan compute (`-dev Vulkan0`), f16 KV, best-of-N per point, generation forced to 128 tokens (`ignore_eos`). Prefill and decode are shown as their value at 2k context and at 32k context. MTP decode is content-dependent (draft acceptance), so treat it as a band, not a fixed number. Each model was the only active GPU user during its run.
+All on the same idle Strix Halo box (Radeon 8060S, RADV `STRIX_HALO`, mesa 26.0.3), measured 2026-07-09 through the actual served stack: Vulkan compute (`-dev Vulkan0`), f16 KV, `-ub 1024`, MTP on, fresh prompts against `/completion`, generation forced to 128 tokens, best of 3 per point. The arrow spans 2k context to the deepest depth measured for that model (in parentheses). MTP decode is content-dependent (draft acceptance), so treat it as a band, not a fixed number: the 27B swung 23 to 39 t/s across reps of the same config.
 
-| Model | Active / total | Quant | MTP | Prefill 2k → 32k (t/s) | Decode 2k → 32k (t/s) |
+| Model | Active / total | Quant | MTP | Prefill (t/s) | Decode (t/s) |
 |---|---|---|:--:|--:|--:|
-| Qwen3.6-35B-A3B | 3B / 35B MoE | ROCmFP4 | yes | 551 → 520 | 110 → 93 |
+| Qwen3.6-35B-A3B | 3B / 35B MoE | ROCmFP4 | yes | 714 → 707 (32k) | 119 → 101 (32k) |
+| Qwen3.6-27B | 27B dense | ROCmFP4 | yes | 217 → 212 (16k) | 39 → 39 (16k) |
+| Qwen3.6-27B-OBLITERATED | 27B dense | ROCmFP4 | yes | 213 → 221 (8k) | 37 → 39 (8k) |
 
-More rows (gemma-4-26B-A4B-heretic, Qwen3.6-27B dense, Qwen3.6-27B-OBLITERATED) are being measured and added. Per-model detail lives in [docs/](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md).
+Pure batch throughput is higher than the served numbers (MTP's draft context re-processes the prompt, ~15% prefill toll): llama-bench pp2048 for the 35B is 1195 t/s on Vulkan and 1411 t/s on ROCm at `-ub 2048`. Per-model detail, backend and MTP A/Bs, and advertised-vs-measured tables live in [docs/](docs/): [35B-A3B](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md), [27B + OBLITERATED](docs/qwen3.6-27b-mtp-rocmfp4.md). A gemma-4-26B-A4B-heretic row (base Vulkan stack) is still to be measured.
 
 ## Layout
 

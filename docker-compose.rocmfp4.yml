@@ -21,10 +21,11 @@ services:
       context: .
       dockerfile: tools/Dockerfile.rocmfp4
       args:
-        # One knob to move the whole ROCm base. Default is the fork-tested pin;
-        # bump to rocm/dev-ubuntu-24.04:7.2.4-complete for the newest 7.2, or a
-        # TheRock layer, if you want to experiment. gfx1151 is the Strix Halo ISA.
-        BASE_ROCM_DEV_CONTAINER: "${ROCMFP4_BASE_IMAGE:-rocm/dev-ubuntu-24.04:7.2.1-complete}"
+        # One knob to move the ROCm SDK the image builds against: a TheRock dist
+        # version (tarball therock-dist-linux-<gfx>-<version>.tar.gz). Default is
+        # the last 7.13 nightly, the first line with gfx1151 in the support
+        # matrix. gfx1151 is the Strix Halo ISA.
+        THEROCK_VERSION: "${ROCMFP4_THEROCK_VERSION:-7.13.0a20260515}"
         CMAKE_HIP_ARCHITECTURES: "${ROCMFP4_GFX:-gfx1151}"
     image: llama-rocmfp4-strix:latest
     container_name: llama-rocmfp4
@@ -46,9 +47,9 @@ services:
     ulimits:
       memlock: -1
     environment:
-      # gfx1151 is outside ROCm's official matrix before 7.13; force HSA to the
-      # Strix Halo ISA so HIP init succeeds on 7.2.x bases.
-      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-11.5.1}
+      # No HSA_OVERRIDE_GFX_VERSION here: the image ships ROCm 7.13 (TheRock),
+      # where gfx1151 is natively in the support matrix. The override was only
+      # ever a workaround for the 7.2.x bases.
       # Keep weights/KV in GTT, not the small VRAM carve-out. HIP side:
       - GGML_HIP_ENABLE_UNIFIED_MEMORY=1
       # Vulkan side (presence check: any value enables it). Same as the base stack.
@@ -84,8 +85,11 @@ services:
       - "on"
       - -b
       - "2048"
+      # ub 1024 is the measured prefill sweet spot on this build (llama-bench
+      # sweep, Vulkan0: 256->896, 512->1066, 1024->1195, 2048->902 t/s pp2048).
+      # The model card's "-ub 256" advice predates the int-dot shader toolchain.
       - -ub
-      - "256"
+      - "1024"
       - --parallel
       - "1"
       # force weights resident (into GTT) instead of mmap, so verify-gtt sees them

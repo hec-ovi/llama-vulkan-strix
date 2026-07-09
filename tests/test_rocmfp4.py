@@ -78,11 +78,22 @@ def test_forces_gtt_on_both_backends():
     assert "GGML_VK_PREFER_HOST_MEMORY=1" in env      # Vulkan allocations -> GTT
 
 
-def test_base_image_overridable_and_defaults_to_fork_pin():
-    args = SVC["build"]["args"]
-    base = args["BASE_ROCM_DEV_CONTAINER"]
-    assert "${ROCMFP4_BASE_IMAGE:-" in base           # one knob to move the base
-    assert "rocm/dev-ubuntu-24.04:7.2.1-complete" in base  # fork-tested default
+def test_base_is_ubuntu_lts_with_pinned_therock():
+    # Stable LTS base + a dated TheRock dist pin (7.13 is the first ROCm line
+    # with gfx1151 in the support matrix; it ships as tarballs, not apt/images).
+    assert "ubuntu:26.04" in DOCKERFILE
+    assert "therock-dist-linux" in DOCKERFILE
+    ver = SVC["build"]["args"]["THEROCK_VERSION"]
+    assert "${ROCMFP4_THEROCK_VERSION:-" in ver       # one knob to move the pin
+    assert "7.13.0a20260515" in ver                   # last 7.13 nightly
+
+
+def test_no_hsa_override_needed_on_713():
+    # The override was a workaround for pre-7.13 ROCm; with TheRock 7.13 the
+    # gfx1151 ISA is native. It quietly coming back would mask a base regression.
+    # match assignments only, not prose in comments
+    assert "HSA_OVERRIDE_GFX_VERSION=" not in COMPOSE_TEXT
+    assert "HSA_OVERRIDE_GFX_VERSION=" not in DOCKERFILE
 
 
 def test_compiles_for_gfx1151():
