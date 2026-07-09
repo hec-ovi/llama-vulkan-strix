@@ -129,6 +129,16 @@ docs/                       per-model benchmarks and run notes (ROCmFP4)
 tests/                      compose invariants, gpu_mem parser, wrapper, rocmfp4
 ```
 
+## Credits
+
+The ROCmFP4 stack here is packaging and measurement; the actual work belongs to:
+
+- [charlie12345](https://github.com/charlie12345/rocmfp4-llama), creator of the ROCmFP4 format and the rocmfp4-llama fork. In his words, "essentially a 5bit quant cosplaying as a 4bit quant", built for AMD GPUs (RDNA2 to current) with QAT, MTP and Eagle 3 support.
+- [plunderstruck](https://huggingface.co/plunderstruck), who quantizes and publishes the Qwen3.6 ROCmFP4 GGUFs served here, including the STRIX hybrids (f16 embeddings, Q6_K head). The [r/StrixHalo announcement thread](https://www.reddit.com/r/StrixHalo/comments/1u0muh0/experimental_amd_strix_halo_gfx1151_quant_of/) for the 27B is a good starting point.
+- [wendell / Level1Techs](https://forum.level1techs.com/t/n5-max-proxmox-strix-halo-with-docker-rocm-fp4-and-mtp-ultimate-setup-guide/251182), whose N5 Max guide supplied the host tuning homework and the Strix Halo reference benchmarks this repo compares against.
+- [kyuz0 / Donato](https://github.com/kyuz0/amd-strix-halo-toolboxes), whose toolboxes established the TheRock-tarball-into-a-container pattern this Dockerfile follows, and who added ROCmFP4 to the toolboxes.
+- The [TheRock](https://github.com/ROCm/TheRock) team at AMD, for shipping ROCm with gfx1151 in the support matrix.
+
 ## License
 
 [MIT](LICENSE) for the build glue here. The base stack pulls a prebuilt image; the ROCmFP4 stack builds the charlie12345/rocmfp4-llama fork, itself an MIT llama.cpp derivative. Models are mounted read-only and the GGUF weights carry their own licenses (Gemma, Llama, Qwen, etc.). You are responsible for complying with each model's terms.
