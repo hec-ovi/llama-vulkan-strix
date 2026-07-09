@@ -1,0 +1,127 @@
+name: llama-rocmfp4-strix
+
+# ROCmFP4 + MTP llama.cpp on Strix Halo (gfx1151). SEPARATE from the base
+# docker-compose.yml on purpose. The base stack pulls a stock image, needs no
+# ROCm and no /dev/kfd, and its tests enforce that. This stack BUILDS the custom
+# fork (charlie12345/rocmfp4-llama) from source and mounts /dev/kfd, because the
+# Q4_0_ROCMFP4 tensor types the plunderstruck GGUFs use cannot load in stock
+# llama.cpp. Keeping the two files apart keeps each promise intact.
+#
+# Compute runs on Vulkan (-dev Vulkan0), which the model card says beats ROCm for
+# ROCmFP4 here; ROCm is present only so the HIP-linked binary can start.
+#
+#   docker compose -f docker-compose.rocmfp4.yml up -d --build
+#   docker compose -f docker-compose.rocmfp4.yml logs -f rocmfp4-llm
+#
+# Config is shared with the base stack via ./.env (same MODELS_DIR, GPU GIDs).
+
+services:
+  rocmfp4-llm:
+    build:
+      context: .
+      dockerfile: tools/Dockerfile.rocmfp4
+      args:
+        # One knob to move the whole ROCm base. Default is the fork-tested pin;
+        # bump to rocm/dev-ubuntu-24.04:7.2.4-complete for the newest 7.2, or a
+        # TheRock layer, if you want to experiment. gfx1151 is the Strix Halo ISA.
+        BASE_ROCM_DEV_CONTAINER: "${ROCMFP4_BASE_IMAGE:-rocm/dev-ubuntu-24.04:7.2.1-complete}"
+        CMAKE_HIP_ARCHITECTURES: "${ROCMFP4_GFX:-gfx1151}"
+    image: llama-rocmfp4-strix:latest
+    container_name: llama-rocmfp4
+    restart: unless-stopped
+    # ROCmFP4 needs BOTH nodes: /dev/dri for the Vulkan compute path, /dev/kfd
+    # because the HIP-linked binary initialises ROCm at startup. This is exactly
+    # the scope the base Vulkan stack avoids; it is unavoidable here.
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/kfd:/dev/kfd
+    group_add:
+      - "${RENDER_GID:-990}"
+      - "${VIDEO_GID:-44}"
+    # ROCm/HSA wants host IPC, an unconfined seccomp profile, and no locked-memory
+    # ceiling so it can pin large buffers in GTT (the 128 GB unified RAM).
+    ipc: host
+    security_opt:
+      - seccomp=unconfined
+    ulimits:
+      memlock: -1
+    environment:
+      # gfx1151 is outside ROCm's official matrix before 7.13; force HSA to the
+      # Strix Halo ISA so HIP init succeeds on 7.2.x bases.
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-11.5.1}
+      # Keep weights/KV in GTT, not the small VRAM carve-out. HIP side:
+      - GGML_HIP_ENABLE_UNIFIED_MEMORY=1
+      # Vulkan side (presence check: any value enables it). Same as the base stack.
+      - GGML_VK_PREFER_HOST_MEMORY=1
+    volumes:
+      - ${MODELS_DIR:-./models}:/models:ro
+    # Default 8081 so it can run alongside the base stack (8080/8090) without a clash.
+    ports:
+      - "${ROCMFP4_PORT:-8081}:8080"
+    command:
+      - --model
+      # fail loud at up/config if ROCMFP4_MODEL is blank, like the base stack does
+      - /models/${ROCMFP4_MODEL:?set ROCMFP4_MODEL in .env to the ROCmFP4 GGUF path relative to MODELS_DIR}
+      - --alias
+      - ${ROCMFP4_ALIAS:-rocmfp4}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      # run the math on Vulkan (RADV / KHR_coopmat), not the ROCm backend
+      - -dev
+      - Vulkan0
+      - --n-gpu-layers
+      - "999"
+      - --ctx-size
+      # model max is 262144; default to a sane first-bring-up size, raise in .env
+      - "${ROCMFP4_CTX:-32768}"
+      - -ctk
+      - f16
+      - -ctv
+      - f16
+      - -fa
+      - "on"
+      - -b
+      - "2048"
+      - -ub
+      - "256"
+      - --parallel
+      - "1"
+      # force weights resident (into GTT) instead of mmap, so verify-gtt sees them
+      - --no-mmap
+      # MTP self-speculative decoding: the reason these builds exist. The draft
+      # runs on the model's own built-in MTP head, on the same Vulkan device.
+      - --spec-type
+      - draft-mtp
+      - --spec-draft-device
+      - Vulkan0
+      - --spec-draft-ngl
+      - all
+      - --spec-draft-n-max
+      - "5"
+      - --spec-draft-p-split
+      - "0.10"
+      - --jinja
+      - --chat-template-file
+      - /models/${ROCMFP4_CHAT_TEMPLATE:-Qwen3.6-35B-A3B-MTP-ROCmFP4/chat_template.jinja}
+      # this is a reasoning model; emit <think> in the deepseek reasoning format
+      - --reasoning-format
+      - deepseek
+      - --chat-template-kwargs
+      - '{"preserve_thinking": true}'
+      # Vision (Qwen3-VL projector) is available but off by default. To enable,
+      # add: --mmproj /models/Qwen3.6-35B-A3B-MTP-ROCmFP4/mmproj-F32.gguf
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 60
+      # first load of an 18 GB model with --no-mmap + MTP warmup is slow
+      start_period: 600s
+    networks:
+      - llmnet
+
+networks:
+  llmnet:
+    driver: bridge

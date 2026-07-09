@@ -1,0 +1,100 @@
+# ROCmFP4 + MTP llama.cpp fork (charlie12345/rocmfp4-llama), server target only.
+#
+# This is the ONE image in this repo that builds from source and pulls in ROCm.
+# The base docker-compose.yml stays stock-image, Vulkan-only, no /dev/kfd. This
+# one exists because the custom Q4_0_ROCMFP4 / Q4_0_ROCMFP4_FAST tensor types the
+# plunderstruck GGUFs use are NOT in upstream llama.cpp: the stock
+# ghcr.io/ggml-org/llama.cpp:server-vulkan image cannot read them. You have to
+# build the fork.
+#
+# Compute still runs on Vulkan at runtime (llama-server -dev Vulkan0, which the
+# model card says beats ROCm for ROCmFP4 on Strix Halo). ROCm is here only
+# because the fork's build enables the HIP backend (-DGGML_HIP=ON) and the binary
+# initialises HIP at startup, so the ROCm runtime + /dev/kfd must be present.
+#
+# Recipe mirrors the fork's own .devops/strix-rocmfp4.Dockerfile (same base,
+# same deps, same build script), with two changes: it git-clones the pinned
+# branch instead of COPY . (so the build context stays tiny), and it keeps only
+# the server stage.
+#
+# Base image is overridable: gfx1151 is not in ROCm's official support matrix
+# until 7.13, but there is no rocm/dev-ubuntu-24.04:7.13 image (highest is 7.2.4)
+# and TheRock 7.13 ships as tarballs, not a FROM base. Vulkan does the math here,
+# so a newer ROCm buys nothing at runtime and only risks breaking the fork build.
+# Default is the fork-tested 7.2.1-complete; bump BASE_ROCM_DEV_CONTAINER to
+# 7.2.4-complete (newest 7.2) or a TheRock layer if you want to experiment.
+
+ARG BASE_ROCM_DEV_CONTAINER=rocm/dev-ubuntu-24.04:7.2.1-complete
+ARG ROCMFP4_REPO=https://github.com/charlie12345/rocmfp4-llama.git
+ARG ROCMFP4_REF=mtp-rocmfp4-strix
+
+FROM ${BASE_ROCM_DEV_CONTAINER} AS build
+
+ARG CMAKE_HIP_ARCHITECTURES=gfx1151
+ARG ROCMFP4_REPO
+ARG ROCMFP4_REF
+
+# Build deps are the fork's exact list: HIP toolchain comes with the base image;
+# glslc + libvulkan-dev + spirv-headers are for the Vulkan shader compile.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    curl \
+    git \
+    glslc \
+    libgomp1 \
+    libssl-dev \
+    libvulkan-dev \
+    libxcb-cursor-dev \
+    libxcb-xinerama0 \
+    libxcb-xinput0 \
+    spirv-headers \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Pinned branch of the fork. --depth 1: the build needs no history, and the fork
+# (like upstream llama.cpp) vendors its deps, so no submodule init is required.
+RUN git clone --depth 1 --branch "${ROCMFP4_REF}" "${ROCMFP4_REPO}" .
+
+# The fork's own build invocation: HIP + Vulkan on, CUDA off, targeting gfx1151.
+RUN HIPCXX="$(hipconfig -l)/clang" HIP_PATH="$(hipconfig -R)" \
+    GGML_HIP_ROCWMMA_FATTN=OFF \
+    CMAKE_HIP_ARCHITECTURES="${CMAKE_HIP_ARCHITECTURES}" \
+    scripts/build-strix-rocmfp4-mtp.sh
+
+# Collect the shared libs the server links against (ggml/llama backends).
+RUN mkdir -p /app/lib \
+    && find build-strix-rocmfp4 -name "*.so*" -exec cp -P {} /app/lib \;
+
+FROM ${BASE_ROCM_DEV_CONTAINER} AS server
+
+# Runtime adds the mesa Vulkan driver (RADV, which owns gfx1151) on top of the
+# ROCm runtime already in the base image. Same package set as the fork's Dockerfile.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+    curl \
+    libegl1 \
+    libgl1 \
+    libgles2 \
+    libglvnd0 \
+    libglx0 \
+    libgomp1 \
+    libvulkan1 \
+    mesa-vulkan-drivers \
+    && apt-get autoremove -y \
+    && apt-get clean -y \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# llama-server and its .so's both live in /app; the binary's rpath is $ORIGIN,
+# and LD_LIBRARY_PATH makes that explicit and guaranteed.
+ENV LLAMA_ARG_HOST=0.0.0.0
+ENV LD_LIBRARY_PATH=/app
+COPY --from=build /app/lib/ /app/
+COPY --from=build /app/build-strix-rocmfp4/bin/llama-server /app/
+
+WORKDIR /app
+
+HEALTHCHECK CMD ["curl", "-f", "http://localhost:8080/health"]
+ENTRYPOINT ["/app/llama-server"]

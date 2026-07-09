@@ -19,6 +19,8 @@ A lean Docker Compose wrapper around the prebuilt `ghcr.io/ggml-org/llama.cpp:se
 
 No ROCm, no `/dev/kfd`, no privileged container. The Vulkan backend needs only `/dev/dri` and your GPU group IDs. It builds nothing: the base stack is a single pulled image.
 
+For the custom ROCmFP4 quants (Qwen3.6 MTP builds), the stock image cannot read the weights and there is a second, heavier stack in `docker-compose.rocmfp4.yml`. See [ROCmFP4 + MTP](#rocmfp4--mtp-separate-stack) below.
+
 ## Quick start
 
 Prerequisites: an AMD Strix Halo box (Ryzen AI Max+, gfx1151) on a recent amdgpu kernel, Docker + Compose, and some GGUF models on disk.
@@ -74,18 +76,47 @@ The bundled `websearch mcp` command speaks stdio only; `tools/websearch_http.py`
 uvx --from git+https://github.com/hec-ovi/websearch-skill websearch web-search "your query" --json
 ```
 
+## ROCmFP4 + MTP (separate stack)
+
+[plunderstruck](https://huggingface.co/collections/plunderstruck/rocmfp4-mtp-strix-halo)'s Qwen3.6 GGUFs use custom `Q4_0_ROCMFP4` tensor types that upstream llama.cpp does not know about, so the stock `server-vulkan` image cannot load them. Running them means building the [charlie12345/rocmfp4-llama](https://github.com/charlie12345/rocmfp4-llama) fork (branch `mtp-rocmfp4-strix`) from source. That is a different animal from the base stack, so it lives in its own file, `docker-compose.rocmfp4.yml`, and leaves the base stack and its "no ROCm" guarantee untouched.
+
+The math still runs on Vulkan. The run command uses `-dev Vulkan0` (RADV / mesa), which the model card says beats the ROCm backend for ROCmFP4 on Strix Halo. ROCm is in the image only because the fork compiles the HIP backend in and the binary initializes it at startup, which is why this stack mounts `/dev/kfd` where the base stack does not. The ROCm version therefore does not touch inference speed here; it is a build and init dependency, not the compute path. The default base is the fork-tested `rocm/dev-ubuntu-24.04:7.2.1-complete`, overridable with `ROCMFP4_BASE_IMAGE`.
+
+The point of these builds is MTP self-speculative decoding: the model drafts its own tokens through a built-in MTP head (`--spec-type draft-mtp`), running on the same Vulkan device.
+
+Get the model (about 20 GB with the vision projector) into `MODELS_DIR`:
+
+```bash
+hf download plunderstruck/Qwen3.6-35B-A3B-MTP-ROCmFP4-GGUF \
+  --local-dir "$MODELS_DIR/Qwen3.6-35B-A3B-MTP-ROCmFP4"
+```
+
+Then build and run (first build compiles the fork, so it is slow):
+
+```bash
+docker compose -f docker-compose.rocmfp4.yml up -d --build
+docker compose -f docker-compose.rocmfp4.yml logs -f rocmfp4-llm
+```
+
+It serves the OpenAI API on `:8081` (host), separate from the base stack's port. `ROCMFP4_MODEL`, `ROCMFP4_CTX` (model max is 262144), the base image, and the gfx target are all in `.env`. Vision is off by default; add `--mmproj /models/Qwen3.6-35B-A3B-MTP-ROCmFP4/mmproj-F32.gguf` to the command to enable the Qwen3-VL projector. `scripts/verify-gtt.sh --min-gtt-mib 18000` proves the load is in GTT here too (pass `LLM_PORT=8081` so it polls the right health endpoint).
+
+Measured throughput (prefill, MTP decode) at 2k to 32k context on this hardware: [docs/qwen3.6-35b-a3b-mtp-rocmfp4.md](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md). Short version: decode ~90 to 110 t/s (beats the ~50 t/s advertised), prefill ~520 to 580 t/s (the advertised ~4000 t/s is not reachable here).
+
 ## Layout
 
 ```text
-docker-compose.yml          llm service (+ optional websearch sidecar)
-.env.example                model, ports, GPU group IDs
+docker-compose.yml          base llm service (+ optional websearch sidecar)
+docker-compose.rocmfp4.yml  ROCmFP4 + MTP service (builds the fork; ROCm + Vulkan)
+.env.example                model, ports, GPU group IDs, ROCmFP4 knobs
 scripts/gpu_mem.py          read amdgpu VRAM vs GTT counters; --verify mode
 scripts/verify-gtt.sh       wait for /health, then assert model is in GTT
 tools/websearch_http.py     websearch MCP server over HTTP (sidecar entry point)
 tools/Dockerfile.websearch  the sidecar image (built only with --profile tools)
-tests/                      compose invariants, gpu_mem parser, wrapper
+tools/Dockerfile.rocmfp4    the ROCmFP4 fork build (server target, gfx1151)
+docs/                       per-model benchmarks and run notes (ROCmFP4)
+tests/                      compose invariants, gpu_mem parser, wrapper, rocmfp4
 ```
 
 ## License
 
-[MIT](LICENSE) for the build glue here. This repo pulls prebuilt images and mounts your models read-only; llama.cpp is MIT, and the GGUF weights you mount carry their own licenses (Gemma, Llama, Qwen, etc.). You are responsible for complying with each model's terms.
+[MIT](LICENSE) for the build glue here. The base stack pulls a prebuilt image; the ROCmFP4 stack builds the charlie12345/rocmfp4-llama fork, itself an MIT llama.cpp derivative. Models are mounted read-only and the GGUF weights carry their own licenses (Gemma, Llama, Qwen, etc.). You are responsible for complying with each model's terms.
