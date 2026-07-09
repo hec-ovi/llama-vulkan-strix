@@ -100,7 +100,17 @@ docker compose -f docker-compose.rocmfp4.yml logs -f rocmfp4-llm
 
 It serves the OpenAI API on `:8081` (host), separate from the base stack's port. `ROCMFP4_MODEL`, `ROCMFP4_CTX` (model max is 262144), the base image, and the gfx target are all in `.env`. Vision is off by default; add `--mmproj /models/Qwen3.6-35B-A3B-MTP-ROCmFP4/mmproj-F32.gguf` to the command to enable the Qwen3-VL projector. `scripts/verify-gtt.sh --min-gtt-mib 18000` proves the load is in GTT here too (pass `LLM_PORT=8081` so it polls the right health endpoint).
 
-Measured throughput (prefill, MTP decode) at 2k to 32k context on this hardware: [docs/qwen3.6-35b-a3b-mtp-rocmfp4.md](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md). Short version: decode ~90 to 110 t/s (beats the ~50 t/s advertised), prefill ~520 to 580 t/s (the advertised ~4000 t/s is not reachable here).
+Measured throughput at 2k to 32k context, next to the other models on this box, is in [Benchmarks](#benchmarks) below (full per-model detail in [docs/](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md)).
+
+## Benchmarks
+
+All on the same idle Strix Halo box (Radeon 8060S, RADV GFX1151), Vulkan compute (`-dev Vulkan0`), f16 KV, best-of-N per point, generation forced to 128 tokens (`ignore_eos`). Prefill and decode are shown as their value at 2k context and at 32k context. MTP decode is content-dependent (draft acceptance), so treat it as a band, not a fixed number. Each model was the only active GPU user during its run.
+
+| Model | Active / total | Quant | MTP | Prefill 2k → 32k (t/s) | Decode 2k → 32k (t/s) |
+|---|---|---|:--:|--:|--:|
+| Qwen3.6-35B-A3B | 3B / 35B MoE | ROCmFP4 | yes | 551 → 520 | 110 → 93 |
+
+More rows (gemma-4-26B-A4B-heretic, Qwen3.6-27B dense, Qwen3.6-27B-OBLITERATED) are being measured and added. Per-model detail lives in [docs/](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md).
 
 ## Layout
 
