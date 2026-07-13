@@ -48,12 +48,19 @@ services:
       - --n-gpu-layers
       - "${LLM_NGL:-99}"
       - --ctx-size
-      - "${LLM_CTX:-32768}"
+      # llama.cpp divides this total KV cache across the fixed server slots.
+      # Keep LLM_CTX_TOTAL = LLM_CTX_PER_SLOT * LLM_PARALLEL; the validator and
+      # /slots check documented in the README catch drift.
+      - "${LLM_CTX_TOTAL:-655360}"
       - --parallel
-      - "${LLM_PARALLEL:-1}"
+      # Five slots reserve one request for the parent while noob's four
+      # detached children are active.
+      - "${LLM_PARALLEL:-5}"
+      # Fixed, equally sized slots make the per-request context contract exact.
+      - --no-kv-unified
       - --jinja
-      - --chat-template-kwargs
-      - '{"enable_thinking": true}'
+      - --reasoning
+      - "off"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
       interval: 30s

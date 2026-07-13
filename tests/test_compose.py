@@ -12,6 +12,12 @@ COMPOSE = (ROOT / "docker-compose.yml").read_text()
 CODE = "\n".join(
     ln for ln in COMPOSE.splitlines() if ln.strip() and not ln.lstrip().startswith("#")
 )
+ENV_EXAMPLE = {
+    key: value
+    for line in (ROOT / ".env.example").read_text().splitlines()
+    if line and not line.startswith("#") and "=" in line
+    for key, value in [line.split("=", 1)]
+}
 
 
 def test_uses_prebuilt_llamacpp_vulkan_image():
@@ -36,6 +42,23 @@ def test_mounts_models_read_only():
 def test_server_knobs_present():
     for flag in ("--n-gpu-layers", "--ctx-size", "--parallel", "--model"):
         assert flag in CODE, flag
+
+
+def test_disables_reasoning_with_supported_server_flag():
+    assert "--reasoning" in CODE
+    assert '- "off"' in CODE
+    assert "--chat-template-kwargs" not in CODE
+
+
+def test_parallel_defaults_reserve_a_parent_slot_and_divide_exactly():
+    per_slot = int(ENV_EXAMPLE["LLM_CTX_PER_SLOT"])
+    parallel = int(ENV_EXAMPLE["LLM_PARALLEL"])
+    total = int(ENV_EXAMPLE["LLM_CTX_TOTAL"])
+    assert parallel >= 5  # one parent plus noob's default four children
+    assert total == per_slot * parallel
+    assert "${LLM_CTX_TOTAL:-655360}" in CODE
+    assert "${LLM_PARALLEL:-5}" in CODE
+    assert "--no-kv-unified" in CODE
 
 
 def test_llm_model_fails_fast_when_blank():

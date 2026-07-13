@@ -45,6 +45,49 @@ curl http://localhost:8080/v1/chat/completions \
 
 Test a different model: edit `LLM_MODEL` in `.env`, then `docker compose up -d` again.
 
+## Parallel agent capacity
+
+`llama-server` treats `--ctx-size` as the total KV cache shared by its server
+slots, while `--parallel` selects the number of slots. See the
+[official server option reference](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).
+This stack names both sides of that relationship in `.env`:
+
+- `LLM_CTX_PER_SLOT` is the context available to one request.
+- `LLM_PARALLEL` is the number of concurrent request slots.
+- `LLM_CTX_TOTAL` must equal `LLM_CTX_PER_SLOT * LLM_PARALLEL`.
+
+The base stack uses fixed, non-unified slots so the division is exact. Keep one
+slot free for the main agent. For noob's defaults of four detached children and
+a 131,072-token context, use:
+
+```dotenv
+LLM_CTX_PER_SLOT=131072
+LLM_PARALLEL=5
+LLM_CTX_TOTAL=655360
+```
+
+The current Qwen3.6-35B-A3B model has 40 layers, two KV heads, and 256-wide K/V
+heads. Its f16 KV cache is therefore 10 GiB per 131,072-token slot, or 50 GiB
+for five slots; together with the roughly 21 GiB weights this fits the 128 GB
+Strix Halo host. Do not copy that total to a model with a larger KV architecture
+without recalculating memory. If a model cannot fit five 131k slots, lower both
+noob's `NOOB_CTX` and `LLM_CTX_PER_SLOT`, or lower noob's
+`NOOB_TASK_CONCURRENCY` and retain `LLM_PARALLEL >= NOOB_TASK_CONCURRENCY + 1`.
+
+Validate the configured arithmetic before starting the service:
+
+```bash
+python3 scripts/check_context_config.py .env
+docker compose config -q
+```
+
+After startup, verify the runtime slots, not just the Compose text:
+
+```bash
+curl -fsS http://localhost:${LLM_PORT:-8080}/slots |
+  python3 scripts/check_context_config.py .env --slots-json -
+```
+
 ## GTT, not VRAM
 
 On Strix Halo the dedicated "VRAM" is a small BIOS carve-out; the 128 GB of unified RAM is reachable by the GPU as GTT. You want model weights in GTT, with VRAM near idle.
