@@ -66,10 +66,13 @@ LLM_PARALLEL=5
 LLM_CTX_TOTAL=655360
 ```
 
-The current Qwen3.6-35B-A3B model has 40 layers, two KV heads, and 256-wide K/V
-heads. Its f16 KV cache is therefore 10 GiB per 131,072-token slot, or 50 GiB
-for five slots; together with the roughly 21 GiB weights this fits the 128 GB
-Strix Halo host. Do not copy that total to a model with a larger KV architecture
+The standard model, laguna-s-2.1 (48 layers, 8 KV heads, 128-wide K/V,
+sliding-window attention on most layers), loads five 131k slots at about 101 GiB
+of GTT: 70 GiB of weights plus roughly 31 GiB of KV cache and compute buffers,
+leaving ~15 GiB of the 116 GiB GTT window. The sliding-window layers are what
+make that possible; full attention on every layer at this geometry would cost
+about 24 GiB of f16 KV per slot and five slots would not fit. Do not copy this
+total to a model with a larger KV architecture
 without recalculating memory. If a model cannot fit five 131k slots, lower both
 noob's `NOOB_CTX` and `LLM_CTX_PER_SLOT`, or lower noob's
 `NOOB_TASK_CONCURRENCY` and retain `LLM_PARALLEL >= NOOB_TASK_CONCURRENCY + 1`.
@@ -147,15 +150,16 @@ Measured throughput at 2k to 32k context, next to the other models on this box, 
 
 ## Benchmarks
 
-All on the same idle Strix Halo box (Radeon 8060S, RADV `STRIX_HALO`, mesa 26.0.3), measured 2026-07-09 through the actual served stack: Vulkan compute (`-dev Vulkan0`), f16 KV, `-ub 1024`, MTP on, fresh prompts against `/completion`, generation forced to 128 tokens, best of 3 per point. The arrow spans 2k context to the deepest depth measured for that model (in parentheses). MTP decode is content-dependent (draft acceptance), so treat it as a band, not a fixed number: the 27B swung 23 to 39 t/s across reps of the same config, and real chat (reasoning plus code generation, natural stop) lands the 35B at 77-86 t/s versus the table's 101-119 on predictable prose.
+All on the same idle Strix Halo box (Radeon 8060S, RADV `STRIX_HALO`), through the actual served stacks: fresh prompts against `/completion`, generation forced to 128 tokens, best of 3 per point (`scripts/bench_server.py`). The laguna row is the base Vulkan stack (stock image, five 131k slots, no MTP, measured 2026-07-22); the Qwen rows are the ROCmFP4 + MTP stack (`-dev Vulkan0`, f16 KV, `-ub 1024`, MTP on, measured 2026-07-09). The arrow spans 2k context to the deepest depth measured for that model (in parentheses). MTP decode is content-dependent (draft acceptance), so treat it as a band, not a fixed number: the 27B swung 23 to 39 t/s across reps of the same config, and real chat (reasoning plus code generation, natural stop) lands the 35B at 77-86 t/s versus the table's 101-119 on predictable prose.
 
 | Model | Active / total | Quant | MTP | Prefill (t/s) | Decode (t/s) |
 |---|---|---|:--:|--:|--:|
+| laguna-s-2.1 | ~5B / ~120B MoE | Q4_K_M | no | 293 → 196 (32k) | 22.7 → 19.5 (32k) |
 | Qwen3.6-35B-A3B | 3B / 35B MoE | ROCmFP4 | yes | 714 → 707 (32k) | 119 → 101 (32k) |
 | Qwen3.6-27B | 27B dense | ROCmFP4 | yes | 217 → 212 (16k) | 39 → 39 (16k) |
 | Qwen3.6-27B-OBLITERATED | 27B dense | ROCmFP4 | yes | 213 → 221 (8k) | 37 → 39 (8k) |
 
-Pure batch throughput is higher than the served numbers (MTP's draft context re-processes the prompt, ~15% prefill toll): llama-bench pp2048 for the 35B is 1195 t/s on Vulkan and 1411 t/s on ROCm at `-ub 2048`. Per-model detail, backend and MTP A/Bs, and advertised-vs-measured tables live in [docs/](docs/): [35B-A3B](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md), [27B + OBLITERATED](docs/qwen3.6-27b-mtp-rocmfp4.md). A gemma-4-26B-A4B-heretic row (base Vulkan stack) is still to be measured.
+Pure batch throughput is higher than the served numbers (MTP's draft context re-processes the prompt, ~15% prefill toll): llama-bench pp2048 for the 35B is 1195 t/s on Vulkan and 1411 t/s on ROCm at `-ub 2048`. Per-model detail, backend and MTP A/Bs, and advertised-vs-measured tables live in [docs/](docs/): [laguna-s-2.1](docs/laguna-s-2.1.md), [35B-A3B](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md), [27B + OBLITERATED](docs/qwen3.6-27b-mtp-rocmfp4.md). A gemma-4-26B-A4B-heretic row (base Vulkan stack) is still to be measured.
 
 ## Layout
 
@@ -165,11 +169,12 @@ docker-compose.rocmfp4.yml  ROCmFP4 + MTP service (builds the fork; ROCm + Vulka
 .env.example                model, ports, GPU group IDs, ROCmFP4 knobs
 scripts/gpu_mem.py          read amdgpu VRAM vs GTT counters; --verify mode
 scripts/verify-gtt.sh       wait for /health, then assert model is in GTT
+scripts/bench_server.py     served prefill/decode by context depth (docs/ tables)
 tools/websearch_http.py     websearch MCP server over HTTP (sidecar entry point)
 tools/Dockerfile.websearch  the sidecar image (built only with --profile tools)
 tools/Dockerfile.rocmfp4    the ROCmFP4 fork build (server target, gfx1151)
-docs/                       per-model benchmarks and run notes (ROCmFP4)
-tests/                      compose invariants, gpu_mem parser, wrapper, rocmfp4
+docs/                       per-model benchmarks and run notes
+tests/                      compose invariants, gpu_mem parser, wrapper, rocmfp4, bench
 ```
 
 ## Credits
