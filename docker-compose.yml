@@ -61,6 +61,16 @@ services:
       - --jinja
       - --reasoning
       - "off"
+      # The server's RAM prompt cache (prompt_save on slot reuse) hits
+      # "GGML_ASSERT(tensor->data != NULL)" and crashes the whole server on the
+      # SECOND request with this build (see logs). Off until a fixed build is pinned.
+      - --cache-ram
+      - "0"
+      # Per-model template file, like ROCMFP4_CHAT_TEMPLATE on the other stack.
+      # Some GGUFs embed a stale template (gemma needed the 2026-07-15 refresh),
+      # so every model keeps its jinja next to the GGUF and .env points here.
+      - --chat-template-file
+      - /models/${LLM_CHAT_TEMPLATE:?set LLM_CHAT_TEMPLATE in .env to a jinja file path relative to MODELS_DIR}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
       interval: 30s

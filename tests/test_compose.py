@@ -67,6 +67,13 @@ def test_llm_model_fails_fast_when_blank():
     assert "${LLM_MODEL:?" in CODE
 
 
+def test_chat_template_fails_fast_when_blank():
+    # Same fail-at-compose-time guard as LLM_MODEL: a blank LLM_CHAT_TEMPLATE
+    # must not send llama-server a bare /models/ path as a template file.
+    assert "${LLM_CHAT_TEMPLATE:?" in CODE
+    assert "LLM_CHAT_TEMPLATE" in ENV_EXAMPLE
+
+
 def test_websearch_sidecar_is_opt_in_and_http():
     assert 'profiles: ["tools"]' in CODE
     assert "tools/Dockerfile.websearch" in CODE
