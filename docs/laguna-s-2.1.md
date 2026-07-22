@@ -4,7 +4,7 @@ Benchmarks and run notes for poolside's Laguna S 2.1, the standard model of the 
 
 ## The model
 
-A Mixture-of-Experts: 256 routed experts, 10 active per token plus a shared expert, 48 layers (the first one dense). GQA with 8 KV heads and 128-wide K/V, hybrid sliding-window attention (512-token window on the SWA layers, split rope bases), YaRN-scaled context of 262,144 tokens (32x over the native 8,192). The GGUF labels itself `256x4.5B`; 4.5B is the active routed-expert weight per token, and the total lands around 120B (estimated from tensor shapes). The file served here is `laguna-s-2.1-Q4_K_M.gguf`, 75 GB, imatrix-calibrated Q4_K_M.
+[poolside's Laguna S 2.1](https://huggingface.co/poolside/Laguna-S-2.1): a 118B-total / 8B-active Mixture-of-Experts, 256 routed experts with top-10 routing plus a shared expert, 48 layers of which 12 are global attention and 36 sliding-window (512-token window, split rope bases). GQA with 8 KV heads and 128-wide K/V, YaRN-scaled context of 262,144 tokens in this GGUF (32x over the native 8,192). The file served here is `laguna-s-2.1-Q4_K_M.gguf`, 75 GB, imatrix-calibrated Q4_K_M.
 
 ## Test rig
 
@@ -31,7 +31,7 @@ Prefill peaks at 8k depth (batch ramp), then falls off with attention cost; deco
 
 ## Memory
 
-Loaded through the compose stack with all five slots allocated: 103,471 MiB (101 GiB) in GTT, of which 70 GiB is weights and roughly 31 GiB is KV cache plus compute buffers, about 6 GiB per 131k slot. The VRAM carve-out stayed idle at 936 MiB. That leaves ~15 GiB of GTT headroom, so this is close to the ceiling for a five-slot layout on the 128 GB box. Verify on your box:
+Loaded through the compose stack with all five slots allocated: 103,471 MiB (101 GiB) in GTT, of which 70 GiB is weights and roughly 31 GiB is KV cache plus compute buffers, about 6 GiB per 131k slot (the 12 global-attention layers at f16; the 36 sliding-window layers cost almost nothing). The VRAM carve-out stayed idle at 936 MiB. That leaves ~15 GiB of GTT headroom, so this is close to the ceiling for a five-slot layout on the 128 GB box. Verify on your box:
 
 ```bash
 scripts/verify-gtt.sh --min-gtt-mib 70000

@@ -154,7 +154,7 @@ All on the same idle Strix Halo box (Radeon 8060S, RADV `STRIX_HALO`), through t
 
 | Model | Active / total | Quant | MTP | Prefill (t/s) | Decode (t/s) |
 |---|---|---|:--:|--:|--:|
-| laguna-s-2.1 | ~5B / ~120B MoE | Q4_K_M | no | 293 → 196 (32k) | 22.7 → 19.5 (32k) |
+| laguna-s-2.1 | 8B / 118B MoE | Q4_K_M | no | 293 → 196 (32k) | 22.7 → 19.5 (32k) |
 | Qwen3.6-35B-A3B | 3B / 35B MoE | ROCmFP4 | yes | 714 → 707 (32k) | 119 → 101 (32k) |
 | Qwen3.6-27B | 27B dense | ROCmFP4 | yes | 217 → 212 (16k) | 39 → 39 (16k) |
 | Qwen3.6-27B-OBLITERATED | 27B dense | ROCmFP4 | yes | 213 → 221 (8k) | 37 → 39 (8k) |
