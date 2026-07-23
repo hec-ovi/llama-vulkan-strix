@@ -4,12 +4,8 @@ name: llama-vulkan-strix
 # models on an AMD Strix Halo APU (gfx1151). Config lives in ./.env
 # (cp .env.example .env). Models are mounted read-only from MODELS_DIR.
 #
-# Services:
-#   llm        - ghcr.io/ggml-org/llama.cpp:server-vulkan (always on)
-#   websearch  - optional websearch-skill MCP server over HTTP (profile: tools)
-#
-# The base stack is one pulled image, no build. The websearch sidecar only
-# builds/starts when you opt in: `docker compose --profile tools up -d`.
+# One service: llm - ghcr.io/ggml-org/llama.cpp:server-vulkan (always on).
+# One pulled image, no build.
 
 services:
   llm:
@@ -80,35 +76,6 @@ services:
     networks:
       - llmnet
 
-  # websearch: hec-ovi/websearch-skill MCP server, served over HTTP so the models
-  # under test (or any MCP client on this network / the host) can call
-  # web_search / web_fetch as a tool. Endpoint: http://localhost:${WEBSEARCH_PORT}/mcp
-  # Opt-in only: `docker compose --profile tools up -d` (or set COMPOSE_PROFILES=tools).
-  websearch:
-    build:
-      context: .
-      dockerfile: tools/Dockerfile.websearch
-    image: llama-vulkan-strix-websearch:latest
-    container_name: websearch-mcp
-    profiles: ["tools"]
-    restart: unless-stopped
-    environment:
-      - WEBSEARCH_MCP_HOST=0.0.0.0
-      - WEBSEARCH_MCP_PORT=8000
-      # store so web_open can page through an already-fetched doc across calls
-      - WEBSEARCH_PERSIST_PATH=/data/store.sqlite
-      # optional: fuse a SearXNG instance as a second engine
-      # - WEBSEARCH_SEARXNG_URL=http://searxng:8080
-    volumes:
-      - websearch-data:/data
-    ports:
-      - "${WEBSEARCH_PORT:-8000}:8000"
-    networks:
-      - llmnet
-
 networks:
   llmnet:
     driver: bridge
-
-volumes:
-  websearch-data:

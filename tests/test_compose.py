@@ -74,8 +74,9 @@ def test_chat_template_fails_fast_when_blank():
     assert "LLM_CHAT_TEMPLATE" in ENV_EXAMPLE
 
 
-def test_websearch_sidecar_is_opt_in_and_http():
-    assert 'profiles: ["tools"]' in CODE
-    assert "tools/Dockerfile.websearch" in CODE
-    # published on 8000 (the HTTP /mcp port the wrapper binds)
-    assert "8000" in CODE
+def test_single_service_no_sidecars():
+    # One repo, one responsibility: the compose file defines the llm service
+    # and nothing else. Web search lives in its own repo (hec-ovi/websearch-skill).
+    assert "websearch" not in CODE
+    assert 'profiles:' not in CODE
+    assert CODE.count("container_name") == 1

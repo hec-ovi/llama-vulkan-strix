@@ -1,7 +1,7 @@
 <h1 align="center">llama-vulkan-strix</h1>
 
 <p align="center">
-  <strong>llama.cpp OpenAI-compatible server on the Vulkan backend, for testing GGUF models on an AMD Strix Halo APU (gfx1151). Weights load into GTT (unified RAM), not the small VRAM carve-out, and there is a script to prove it. Optional keyless web-search MCP sidecar.</strong>
+  <strong>llama.cpp OpenAI-compatible server on the Vulkan backend, for testing GGUF models on an AMD Strix Halo APU (gfx1151). Weights load into GTT (unified RAM), not the small VRAM carve-out, and there is a script to prove it.</strong>
 </p>
 
 <p align="center">
@@ -105,23 +105,6 @@ scripts/verify-gtt.sh --min-gtt-mib 14000     # ~14 GB model; adjust to yours
 
 It waits for `/health`, then reads the kernel's amdgpu counters under `/sys/class/drm/card*/device/` (`mem_info_gtt_used`, `mem_info_vram_used`, in bytes) and asserts GTT carries the load while VRAM stays idle. `scripts/gpu_mem.py` is the underlying tool (`--json` for a raw snapshot). These sysfs counters are the source of truth on Strix Halo, where `rocm-smi` can misreport against the tiny VRAM pool. `amdgpu_top` and `radeontop` show the same split live.
 
-## Web search (optional)
-
-An opt-in sidecar runs [hec-ovi/websearch-skill](https://github.com/hec-ovi/websearch-skill) (keyless web search + page fetch to clean Markdown) as an MCP server over HTTP, so the models you test, or any MCP client, can call `web_search` / `web_fetch` as a tool.
-
-```bash
-docker compose --profile tools up -d
-# MCP endpoint (streamable-http): http://localhost:8000/mcp
-```
-
-Point an MCP client at that URL. Tools: `web_search`, `web_fetch`, `web_open`, `arxiv_search`, `github_search`.
-
-The bundled `websearch mcp` command speaks stdio only; `tools/websearch_http.py` flips the same FastMCP server to HTTP so it is reachable over the network. If you do not want a sidecar at all, call it directly instead:
-
-```bash
-uvx --from git+https://github.com/hec-ovi/websearch-skill websearch web-search "your query" --json
-```
-
 ## ROCmFP4 + MTP (separate stack)
 
 [plunderstruck](https://huggingface.co/collections/plunderstruck/rocmfp4-mtp-strix-halo)'s Qwen3.6 GGUFs use custom `Q4_0_ROCMFP4` tensor types that upstream llama.cpp does not know about, so the stock `server-vulkan` image cannot load them. Running them means building the [charlie12345/rocmfp4-llama](https://github.com/charlie12345/rocmfp4-llama) fork (branch `mtp-rocmfp4-strix`) from source. That is a different animal from the base stack, so it lives in its own file, `docker-compose.rocmfp4.yml`, and leaves the base stack and its "no ROCm" guarantee untouched.
@@ -164,14 +147,12 @@ Pure batch throughput is higher than the served numbers (MTP's draft context re-
 ## Layout
 
 ```text
-docker-compose.yml          base llm service (+ optional websearch sidecar)
+docker-compose.yml          base llm service
 docker-compose.rocmfp4.yml  ROCmFP4 + MTP service (builds the fork; ROCm + Vulkan)
 .env.example                model, ports, GPU group IDs, ROCmFP4 knobs
 scripts/gpu_mem.py          read amdgpu VRAM vs GTT counters; --verify mode
 scripts/verify-gtt.sh       wait for /health, then assert model is in GTT
 scripts/bench_server.py     served prefill/decode by context depth (docs/ tables)
-tools/websearch_http.py     websearch MCP server over HTTP (sidecar entry point)
-tools/Dockerfile.websearch  the sidecar image (built only with --profile tools)
 tools/Dockerfile.rocmfp4    the ROCmFP4 fork build (server target, gfx1151)
 docs/                       per-model benchmarks and run notes
 tests/                      compose invariants, gpu_mem parser, wrapper, rocmfp4, bench

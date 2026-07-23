@@ -29,8 +29,6 @@ This repository builds nothing from source. It pulls prebuilt images at runtime:
 
   - llama.cpp server (Vulkan): ghcr.io/ggml-org/llama.cpp:server-vulkan,
     upstream https://github.com/ggml-org/llama.cpp, MIT licensed.
-  - The optional websearch sidecar installs hec-ovi/websearch-skill (MIT) and
-    its dependencies at container start; each retains its own upstream license.
 
 GGUF model weights are user-provided and mounted read-only. They are NOT part of
 this repository and carry their own licenses (Gemma, Llama, Qwen, etc.). You are
