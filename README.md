@@ -158,6 +158,12 @@ docs/                       per-model benchmarks and run notes
 tests/                      compose invariants, gpu_mem parser, wrapper, rocmfp4, bench
 ```
 
+Run the tests (they need pytest and PyYAML, no Docker and no GPU):
+
+```bash
+uvx --with pyyaml pytest tests/ -q
+```
+
 ## Credits
 
 The ROCmFP4 stack here is packaging and measurement; the actual work belongs to:
