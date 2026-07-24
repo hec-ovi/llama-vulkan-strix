@@ -105,6 +105,27 @@ scripts/verify-gtt.sh --min-gtt-mib 14000     # ~14 GB model; adjust to yours
 
 It waits for `/health`, then reads the kernel's amdgpu counters under `/sys/class/drm/card*/device/` (`mem_info_gtt_used`, `mem_info_vram_used`, in bytes) and asserts GTT carries the load while VRAM stays idle. `scripts/gpu_mem.py` is the underlying tool (`--json` for a raw snapshot). These sysfs counters are the source of truth on Strix Halo, where `rocm-smi` can misreport against the tiny VRAM pool. `amdgpu_top` and `radeontop` show the same split live.
 
+## The GTT pool (raise it once in GRUB)
+
+The GTT window is not the whole 128 GB by default. amdgpu sizes it from `ttm.pages_limit`, which defaults to half of RAM: about 62 GiB on this box (`cat /sys/module/ttm/parameters/pages_limit` reads 16182224 pages of 4 KiB). The five-slot laguna load is ~101 GiB, so it does not fit a stock pool, and `--n-gpu-layers 99` drives the allocator past the ceiling. On unified memory that is not a graceful OOM: the box hard-freezes and needs a power cycle.
+
+Raise the pool on the kernel command line and reboot. Edit `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`:
+
+```
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash amd_iommu=off amdgpu.gttsize=114688 ttm.pages_limit=29360128"
+```
+
+Then `sudo update-grub` and reboot. `ttm.pages_limit` is in 4 KiB pages, so 29360128 x 4096 = 112 GiB of GTT (the benchmark box ran 116; 112 leaves a bit more for the host). `amd_iommu=off` lets the GPU address the full pool; with IOMMU on, only a few GiB is allocatable at load time. `amdgpu.gttsize` (MiB) is honored on kernels that still expose the param and ignored on newer ones, so `ttm.pages_limit` is the value that actually moves the pool.
+
+This lives on the host, outside the stack, and a GRUB reset silently drops it back to the 62 GiB default. If the box starts freezing on model load again, check the pool before anything else:
+
+```bash
+cat /sys/module/ttm/parameters/pages_limit   # want 29360128, not 16182224
+python3 scripts/gpu_mem.py                    # gtt_total should read ~114688M
+```
+
+For laguna the raise is not optional: the ~70 GiB of weights alone overflow the default pool, and context size only tunes the KV part. On a smaller raised pool, drop to one slot at 64k (`LLM_PARALLEL=1`, `LLM_CTX_PER_SLOT=65536`, `LLM_CTX_TOTAL=65536`) to trade the five-slot ~31 GiB of KV for a few GiB (this profile is outside what `check_context_config.py` validates, which assumes the noob five-slot layout).
+
 ## ROCmFP4 + MTP (separate stack)
 
 [plunderstruck](https://huggingface.co/collections/plunderstruck/rocmfp4-mtp-strix-halo)'s Qwen3.6 GGUFs use custom `Q4_0_ROCMFP4` tensor types that upstream llama.cpp does not know about, so the stock `server-vulkan` image cannot load them. Running them means building the [charlie12345/rocmfp4-llama](https://github.com/charlie12345/rocmfp4-llama) fork (branch `mtp-rocmfp4-strix`) from source. That is a different animal from the base stack, so it lives in its own file, `docker-compose.rocmfp4.yml`, and leaves the base stack and its "no ROCm" guarantee untouched.
