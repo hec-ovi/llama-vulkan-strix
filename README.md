@@ -24,6 +24,7 @@ The server computes on Vulkan but includes ROCm because the HIP-linked binary ne
 Prerequisites: an AMD Strix Halo box (Ryzen AI Max+, gfx1151) on a recent amdgpu kernel, Docker + Compose, and some GGUF models on disk.
 
 ```bash
+cd ~/workspace/llama-vulkan-strix
 cp .env.example .env
 # edit .env: set MODELS_DIR, ROCMFP4_MODEL, and your RENDER_GID / VIDEO_GID
 #   getent group render | cut -d: -f3
@@ -32,6 +33,8 @@ cp .env.example .env
 docker compose up -d
 docker compose logs -f llm
 ```
+
+Run Compose from this repository. `~/workspace/noob-cli/workspace` belongs to a different Compose project.
 
 Call it:
 
@@ -60,7 +63,9 @@ ROCMFP4_PARALLEL=5
 ROCMFP4_CTX_TOTAL=1310720
 ```
 
-The [derivative model card](https://huggingface.co/plunderstruck/Qwen3.6-27B-OBLITERATED-MTP-ROCmFP4-GGUF) and [upstream Qwen config](https://huggingface.co/Qwen/Qwen3.6-27B/blob/main/config.json) both set the native limit to 262,144 tokens. That limit includes input and generated output. Five f16 slots need about 80 GiB for the full-attention KV tensors alone, before the 16.9 GB weights, recurrent state, and compute buffers. Use the raised GTT pool below.
+The [derivative model card](https://huggingface.co/plunderstruck/Qwen3.6-27B-OBLITERATED-MTP-ROCmFP4-GGUF) and [upstream Qwen config](https://huggingface.co/Qwen/Qwen3.6-27B/blob/main/config.json) both set the native limit to 262,144 tokens. That limit includes input and generated output.
+
+Five f16 slots can use about 80 GiB for full-attention KV before weights and runtime buffers. The default instead uses q8 target KV and q4 draft KV, disables the extra prompt cache, and caps container memory plus swap at 90 GiB. This keeps five full slots without letting the server consume the host.
 
 Validate the configured arithmetic and Compose model:
 
@@ -113,7 +118,7 @@ cat /sys/module/ttm/parameters/pages_limit   # want 29360128, not 16182224
 python3 scripts/gpu_mem.py                    # gtt_total should read ~114688M
 ```
 
-The five-slot Qwen profile also needs the raised pool. Its full-attention f16 KV allocation is about 80 GiB before weights and runtime buffers. Laguna's ~70 GiB of weights alone also overflow the stock pool.
+The five-slot Qwen profile still needs the raised pool. Laguna's ~70 GiB of weights alone also overflow the stock pool.
 
 ## ROCmFP4 + MTP
 
@@ -138,6 +143,8 @@ The first start compiles the fork:
 docker compose up -d
 docker compose logs -f llm
 ```
+
+There is no compatible stock llama.cpp image for this custom GGUF. With an empty Docker image store, the first start must download Ubuntu and TheRock layers and compile the fork. Later starts reuse the local build.
 
 It serves the OpenAI API on `:8080`. Model, template, alias, five-slot context profile, TheRock pin, and gfx target are in `.env`. Vision is off by default; the model repository also provides `mmproj-F32.gguf`.
 

@@ -25,6 +25,7 @@ def test_plain_compose_uses_rocmfp4_mtp_service():
     assert set(COMPOSE["services"]) == {"llm"}
     service = COMPOSE["services"]["llm"]
     assert service["build"]["dockerfile"] == "tools/Dockerfile.rocmfp4"
+    assert "image" not in service
     assert "--spec-type" in service["command"]
     assert "draft-mtp" in service["command"]
 
@@ -41,3 +42,22 @@ def test_example_env_selects_27b_obliterated_at_native_max_context():
     assert "${ROCMFP4_CTX_TOTAL:-1310720}" in COMPOSE_TEXT
     assert "${ROCMFP4_PARALLEL:-5}" in COMPOSE_TEXT
     assert "--no-kv-unified" in COMPOSE["services"]["llm"]["command"]
+
+
+def test_default_profile_stays_below_host_memory_budget():
+    service = COMPOSE["services"]["llm"]
+    command = service["command"]
+    assert service["mem_limit"] == "${ROCMFP4_MEMORY_LIMIT:-90g}"
+    assert service["memswap_limit"] == "${ROCMFP4_MEMORY_LIMIT:-90g}"
+    assert ENV_EXAMPLE["ROCMFP4_MEMORY_LIMIT"] == "90g"
+    assert ENV_EXAMPLE["ROCMFP4_KV_TYPE"] == "q8_0"
+    assert ENV_EXAMPLE["ROCMFP4_DRAFT_KV_TYPE"] == "q4_0"
+    assert command[command.index("-ctk") + 1] == "${ROCMFP4_KV_TYPE:-q8_0}"
+    assert command[command.index("-ctv") + 1] == "${ROCMFP4_KV_TYPE:-q8_0}"
+    assert command[command.index("--spec-draft-type-k") + 1] == (
+        "${ROCMFP4_DRAFT_KV_TYPE:-q4_0}"
+    )
+    assert command[command.index("--spec-draft-type-v") + 1] == (
+        "${ROCMFP4_DRAFT_KV_TYPE:-q4_0}"
+    )
+    assert command[command.index("--cache-ram") + 1] == "0"

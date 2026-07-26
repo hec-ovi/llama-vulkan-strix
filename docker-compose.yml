@@ -25,9 +25,12 @@ services:
         # matrix. gfx1151 is the Strix Halo ISA.
         THEROCK_VERSION: "${ROCMFP4_THEROCK_VERSION:-7.13.0a20260515}"
         CMAKE_HIP_ARCHITECTURES: "${ROCMFP4_GFX:-gfx1151}"
-    image: llama-rocmfp4-strix:latest
     container_name: llama-rocmfp4
     restart: unless-stopped
+    # Fail this container instead of letting model, KV, and runtime allocations
+    # consume the host. Equal memory/swap limits disable additional swap.
+    mem_limit: "${ROCMFP4_MEMORY_LIMIT:-90g}"
+    memswap_limit: "${ROCMFP4_MEMORY_LIMIT:-90g}"
     # ROCmFP4 needs BOTH nodes: /dev/dri for the Vulkan compute path, /dev/kfd
     # because the HIP-linked binary initialises ROCm at startup. This is exactly
     # the scope the optional stock Vulkan stack avoids; it is unavoidable here.
@@ -78,9 +81,9 @@ services:
       # Five slots at the native 262144-token model maximum need 1310720 total.
       - "${ROCMFP4_CTX_TOTAL:-1310720}"
       - -ctk
-      - f16
+      - "${ROCMFP4_KV_TYPE:-q8_0}"
       - -ctv
-      - f16
+      - "${ROCMFP4_KV_TYPE:-q8_0}"
       - -fa
       - "on"
       - -b
@@ -104,6 +107,10 @@ services:
       - Vulkan0
       - --spec-draft-ngl
       - all
+      - --spec-draft-type-k
+      - "${ROCMFP4_DRAFT_KV_TYPE:-q4_0}"
+      - --spec-draft-type-v
+      - "${ROCMFP4_DRAFT_KV_TYPE:-q4_0}"
       - --spec-draft-n-max
       - "5"
       - --spec-draft-p-split
@@ -116,6 +123,10 @@ services:
       - deepseek
       - --chat-template-kwargs
       - '{"preserve_thinking": true}'
+      # The server prompt cache defaults to another 8 GiB. Five full context
+      # slots already cover the requested concurrency, so keep it disabled.
+      - --cache-ram
+      - "0"
       # Vision (Qwen3-VL projector) is available but off by default. To enable,
       # add: --mmproj /models/Qwen3.6-27b/mmproj-F32.gguf
     healthcheck:

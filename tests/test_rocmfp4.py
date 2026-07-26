@@ -83,6 +83,16 @@ def test_five_fixed_slots_each_get_native_max_context():
     assert "--no-kv-unified" in CMD
 
 
+def test_memory_bounded_kv_profile():
+    assert SVC["mem_limit"] == "${ROCMFP4_MEMORY_LIMIT:-90g}"
+    assert SVC["memswap_limit"] == "${ROCMFP4_MEMORY_LIMIT:-90g}"
+    assert _after("-ctk") == "${ROCMFP4_KV_TYPE:-q8_0}"
+    assert _after("-ctv") == "${ROCMFP4_KV_TYPE:-q8_0}"
+    assert _after("--spec-draft-type-k") == "${ROCMFP4_DRAFT_KV_TYPE:-q4_0}"
+    assert _after("--spec-draft-type-v") == "${ROCMFP4_DRAFT_KV_TYPE:-q4_0}"
+    assert _after("--cache-ram") == "0"
+
+
 def test_forces_gtt_on_both_backends():
     env = "\n".join(SVC["environment"])
     assert "GGML_HIP_ENABLE_UNIFIED_MEMORY=1" in env  # HIP allocations -> GTT
