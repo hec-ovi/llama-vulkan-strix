@@ -91,6 +91,9 @@ def test_memory_bounded_kv_profile():
     assert _after("--spec-draft-type-k") == "${ROCMFP4_DRAFT_KV_TYPE:-q4_0}"
     assert _after("--spec-draft-type-v") == "${ROCMFP4_DRAFT_KV_TYPE:-q4_0}"
     assert _after("--cache-ram") == "0"
+    # draft-mtp + ctx checkpoints abort on this fork (null tensor in update_dft)
+    assert _after("--ctx-checkpoints") == "0"
+    assert _after("--checkpoint-every-n-tokens") == "-1"
 
 
 def test_forces_gtt_on_both_backends():

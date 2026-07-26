@@ -61,3 +61,5 @@ def test_default_profile_stays_below_host_memory_budget():
         "${ROCMFP4_DRAFT_KV_TYPE:-q4_0}"
     )
     assert command[command.index("--cache-ram") + 1] == "0"
+    assert command[command.index("--ctx-checkpoints") + 1] == "0"
+    assert command[command.index("--checkpoint-every-n-tokens") + 1] == "-1"

@@ -127,6 +127,16 @@ services:
       # slots already cover the requested concurrency, so keep it disabled.
       - --cache-ram
       - "0"
+      # Disable context checkpoints. With draft-mtp on this ROCmFP4 Vulkan build,
+      # serializing the draft state crashes after prefill:
+      #   GGML_ASSERT(tensor->data != NULL && "tensor not allocated")
+      # in common_prompt_checkpoint::update_dft. That aborts the process, Docker
+      # restarts it, and clients see HTTP 503 "Loading model" until reload
+      # finishes. MTP decoding still works; only checkpoint save is skipped.
+      - --ctx-checkpoints
+      - "0"
+      - --checkpoint-every-n-tokens
+      - "-1"
       # Vision (Qwen3-VL projector) is available but off by default. To enable,
       # add: --mmproj /models/Qwen3.6-27b/mmproj-F32.gguf
     healthcheck:
