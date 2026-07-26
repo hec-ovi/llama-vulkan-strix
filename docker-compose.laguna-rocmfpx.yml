@@ -41,9 +41,10 @@ services:
       - GGML_VK_FA_MAX_WORKGROUPS_X_PER_DISPATCH=4
     volumes:
       - ${MODELS_DIR:-./models}:/models:ro
-    # 8082 avoids the base Vulkan stack on 8080 and Qwen ROCmFP4 on 8081.
+    # Every server stack in this repo uses llama.cpp's standard host port 8080.
+    # The compose files are alternatives and must not run at the same time.
     ports:
-      - "${LAGUNA_ROCMFPX_BIND:-127.0.0.1}:${LAGUNA_ROCMFPX_PORT:-8082}:8080"
+      - "${LAGUNA_ROCMFPX_BIND:-127.0.0.1}:${LAGUNA_ROCMFPX_PORT:-8080}:8080"
     command:
       - --model
       - /models/${LAGUNA_ROCMFPX_MODEL:?set LAGUNA_ROCMFPX_MODEL in .env to the Laguna ROCmFP4 GGUF path relative to MODELS_DIR}

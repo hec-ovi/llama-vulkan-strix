@@ -106,8 +106,7 @@ def test_server_entrypoint_and_health():
     assert "/health" in COMPOSE_TEXT
 
 
-def test_default_port_does_not_clash_with_base_stack():
+def test_uses_standard_llamacpp_host_port():
     base_ports = _default_host_ports(BASE_COMPOSE_PATH.read_text())
     rocmfp4_ports = _default_host_ports(COMPOSE_TEXT)
-    assert rocmfp4_ports  # sanity: we actually parsed one
-    assert base_ports.isdisjoint(rocmfp4_ports), (base_ports, rocmfp4_ports)
+    assert base_ports == rocmfp4_ports == {8080}

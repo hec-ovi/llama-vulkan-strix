@@ -21,6 +21,8 @@ No ROCm, no `/dev/kfd`, no privileged container. The Vulkan backend needs only `
 
 For the custom ROCmFP4 quants (Qwen3.6 MTP builds), the stock image cannot read the weights and there is a second, heavier stack in `docker-compose.rocmfp4.yml`. See [ROCmFP4 + MTP](#rocmfp4--mtp-separate-stack) below.
 
+All three compose files publish the server on port `8080`. They are alternative runtimes, so stop the active stack before starting another one.
+
 ## Quick start
 
 Prerequisites: an AMD Strix Halo box (Ryzen AI Max+, gfx1151) on a recent amdgpu kernel, Docker + Compose, and some GGUF models on disk.
@@ -148,7 +150,7 @@ docker compose -f docker-compose.rocmfp4.yml up -d --build
 docker compose -f docker-compose.rocmfp4.yml logs -f rocmfp4-llm
 ```
 
-It serves the OpenAI API on `:8081` (host), separate from the base stack's port. `ROCMFP4_MODEL`, `ROCMFP4_CTX` (model max is 262144), the TheRock pin, and the gfx target are all in `.env`. Vision is off by default; add `--mmproj /models/Qwen3.6-35B-A3B-MTP-ROCmFP4/mmproj-F32.gguf` to the command to enable the Qwen3-VL projector. `scripts/verify-gtt.sh --min-gtt-mib 18000` proves the load is in GTT here too (pass `LLM_PORT=8081` so it polls the right health endpoint).
+It serves the OpenAI API on `:8080`. `ROCMFP4_MODEL`, `ROCMFP4_CTX` (model max is 262144), the TheRock pin, and the gfx target are all in `.env`. Vision is off by default; add `--mmproj /models/Qwen3.6-35B-A3B-MTP-ROCmFP4/mmproj-F32.gguf` to the command to enable the Qwen3-VL projector. `scripts/verify-gtt.sh --min-gtt-mib 18000` proves the load is in GTT here too.
 
 Measured throughput at 2k to 32k context, next to the other models on this box, is in [Benchmarks](#benchmarks) below (full per-model detail in [docs/](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md)).
 
@@ -172,7 +174,7 @@ docker compose -f docker-compose.laguna-rocmfpx.yml up -d --build
 docker compose -f docker-compose.laguna-rocmfpx.yml logs -f laguna-llm
 ```
 
-It serves on `127.0.0.1:8082`. Its env settings are separate from the Qwen stack. The default 131072-token profile uses the Runtime V2 submission limits validated by the model author. The container verifies the published model SHA-256 before launch, runs unprivileged with a read-only root filesystem and no Linux capabilities, and mounts model files read-only.
+It serves on `127.0.0.1:8080`. Its env settings are separate from the Qwen stack. The default 131072-token profile uses the Runtime V2 submission limits validated by the model author. The container verifies the published model SHA-256 before launch, runs unprivileged with a read-only root filesystem and no Linux capabilities, and mounts model files read-only.
 
 ## Benchmarks
 

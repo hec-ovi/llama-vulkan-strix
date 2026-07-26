@@ -56,9 +56,10 @@ services:
       - GGML_VK_PREFER_HOST_MEMORY=1
     volumes:
       - ${MODELS_DIR:-./models}:/models:ro
-    # Default 8081 so it can run alongside the base stack (8080/8090) without a clash.
+    # Every server stack in this repo uses llama.cpp's standard host port 8080.
+    # The compose files are alternatives and must not run at the same time.
     ports:
-      - "${ROCMFP4_PORT:-8081}:8080"
+      - "${ROCMFP4_PORT:-8080}:8080"
     command:
       - --model
       # fail loud at up/config if ROCMFP4_MODEL is blank, like the base stack does

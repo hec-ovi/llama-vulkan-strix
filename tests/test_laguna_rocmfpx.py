@@ -89,12 +89,11 @@ def test_disables_features_the_model_does_not_have():
     assert "--chat-template-file" not in CMD
 
 
-def test_port_does_not_clash_with_existing_stacks():
-    existing = _default_host_ports(BASE_COMPOSE_PATH.read_text())
-    existing |= _default_host_ports(QWEN_COMPOSE_PATH.read_text())
+def test_uses_standard_llamacpp_host_port():
+    base = _default_host_ports(BASE_COMPOSE_PATH.read_text())
+    qwen = _default_host_ports(QWEN_COMPOSE_PATH.read_text())
     laguna = _default_host_ports(COMPOSE_TEXT)
-    assert laguna == {8082}
-    assert existing.isdisjoint(laguna)
+    assert base == qwen == laguna == {8080}
     assert "${LAGUNA_ROCMFPX_BIND:-127.0.0.1}" in SVC["ports"][0]
 
 

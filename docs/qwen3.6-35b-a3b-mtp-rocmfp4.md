@@ -73,7 +73,7 @@ MTP self-speculation drafts tokens with the model's own head and verifies them a
 With the model loaded through the compose stack, GTT (unified RAM) held 20.7 GB while the VRAM carve-out stayed idle at 656 MiB. This is the whole point of the Strix Halo setup; verify it yourself with:
 
 ```bash
-LLM_PORT=8081 scripts/verify-gtt.sh --min-gtt-mib 18000
+scripts/verify-gtt.sh --min-gtt-mib 18000
 ```
 
 ## Reproduce
@@ -93,12 +93,12 @@ Server-level timings come from the native `/completion` endpoint:
 
 ```bash
 # prefill: process a long prompt, generate one token
-curl -s localhost:8081/completion -H 'content-type: application/json' \
+curl -s localhost:8080/completion -H 'content-type: application/json' \
   -d '{"prompt":"<~2000 token prompt>","n_predict":1,"cache_prompt":false}' \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["timings"]["prompt_per_second"])'
 
 # decode: force 128 generated tokens so the rate is real
-curl -s localhost:8081/completion -H 'content-type: application/json' \
+curl -s localhost:8080/completion -H 'content-type: application/json' \
   -d '{"prompt":"Explain unified memory on an APU.","n_predict":128,"ignore_eos":true,"cache_prompt":false}' \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["timings"]["predicted_per_second"])'
 ```

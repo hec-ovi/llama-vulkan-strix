@@ -38,4 +38,4 @@ MTP acceptance decides everything for a dense model: across reps the same config
 
 ## Memory
 
-Each 27B build holds ~17 GB of weights in GTT plus KV; same GTT-not-VRAM behaviour as the 35B (`LLM_PORT=8081 scripts/verify-gtt.sh --min-gtt-mib 16000`).
+Each 27B build holds ~17 GB of weights in GTT plus KV; same GTT-not-VRAM behaviour as the 35B (`scripts/verify-gtt.sh --min-gtt-mib 16000`).
