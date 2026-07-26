@@ -1,9 +1,9 @@
 # ROCmFP4 + MTP llama.cpp fork (charlie12345/rocmfp4-llama), server target only.
 #
-# This is the ONE image in this repo that builds from source and pulls in ROCm.
-# The base docker-compose.yml stays stock-image, Vulkan-only, no /dev/kfd. This
-# one exists because the custom Q4_0_ROCMFP4 / Q4_0_ROCMFP4_FAST tensor types the
-# plunderstruck GGUFs use are NOT in upstream llama.cpp: the stock
+# This is the default image and the only one in this repo that builds from source
+# with ROCm. It exists because the custom Q4_0_ROCMFP4 /
+# Q4_0_ROCMFP4_FAST tensor types in the plunderstruck GGUFs are not in upstream
+# llama.cpp: the stock
 # ghcr.io/ggml-org/llama.cpp:server-vulkan image cannot read them. You have to
 # build the fork.
 #

@@ -1,7 +1,7 @@
 <h1 align="center">llama-vulkan-strix</h1>
 
 <p align="center">
-  <strong>llama.cpp OpenAI-compatible server on the Vulkan backend, for testing GGUF models on an AMD Strix Halo APU (gfx1151). Weights load into GTT (unified RAM), not the small VRAM carve-out, and there is a script to prove it.</strong>
+  <strong>ROCmFP4 + MTP llama.cpp server for Qwen3.6 on AMD Strix Halo. The default is the 27B OBLITERATED Strix quant with five 262,144-token slots.</strong>
 </p>
 
 <p align="center">
@@ -15,13 +15,9 @@
 
 ## What this is
 
-A lean Docker Compose wrapper around the prebuilt `ghcr.io/ggml-org/llama.cpp:server-vulkan` image. Point it at a folder of GGUF files, set one in `.env`, bring it up, and you have an OpenAI-compatible endpoint on `:8080`. Swap the model in `.env` and restart to test the next one.
+A Docker Compose setup for the custom ROCmFP4 tensor types and MTP self-speculative decoding on gfx1151. Plain `docker compose up -d` builds the required llama.cpp fork and serves `Qwen3.6-27B-OBLITERATED-MTP-ROCmFP4` on `:8080`.
 
-No ROCm, no `/dev/kfd`, no privileged container. The Vulkan backend needs only `/dev/dri` and your GPU group IDs. It builds nothing: the base stack is a single pulled image.
-
-For the custom ROCmFP4 quants (Qwen3.6 MTP builds), the stock image cannot read the weights and there is a second, heavier stack in `docker-compose.rocmfp4.yml`. See [ROCmFP4 + MTP](#rocmfp4--mtp-separate-stack) below.
-
-All three compose files publish the server on port `8080`. They are alternative runtimes, so stop the active stack before starting another one.
+The server computes on Vulkan but includes ROCm because the HIP-linked binary needs `/dev/kfd` at startup. `docker-compose.vulkan.yml` keeps the stock Vulkan-only runtime for standard GGUFs. `docker-compose.laguna-rocmfpx.yml` is the separate Laguna Runtime V2 stack. All three are alternatives on port `8080`.
 
 ## Quick start
 
@@ -29,12 +25,12 @@ Prerequisites: an AMD Strix Halo box (Ryzen AI Max+, gfx1151) on a recent amdgpu
 
 ```bash
 cp .env.example .env
-# edit .env: set MODELS_DIR, LLM_MODEL, and your RENDER_GID / VIDEO_GID
+# edit .env: set MODELS_DIR, ROCMFP4_MODEL, and your RENDER_GID / VIDEO_GID
 #   getent group render | cut -d: -f3
 #   getent group video  | cut -d: -f3
 
 docker compose up -d
-docker compose logs -f llm        # watch it load
+docker compose logs -f llm
 ```
 
 Call it:
@@ -42,67 +38,58 @@ Call it:
 ```bash
 curl http://localhost:8080/v1/chat/completions \
   -H 'content-type: application/json' \
-  -d '{"model":"llm","messages":[{"role":"user","content":"hi"}]}'
+  -d '{"model":"qwen3.6-27b-obliterated-mtp","messages":[{"role":"user","content":"hi"}]}'
 ```
 
-Test a different model: edit `LLM_MODEL` in `.env`, then `docker compose up -d` again.
+Test another ROCmFP4 model by changing `ROCMFP4_MODEL`, `ROCMFP4_CHAT_TEMPLATE`, and `ROCMFP4_ALIAS` in `.env`.
 
-## Parallel agent capacity
+## Context and parallel slots
 
 `llama-server` treats `--ctx-size` as the total KV cache shared by its server
 slots, while `--parallel` selects the number of slots. See the
 [official server option reference](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md).
-This stack names both sides of that relationship in `.env`:
+The default profile uses fixed slots:
 
-- `LLM_CTX_PER_SLOT` is the context available to one request.
-- `LLM_PARALLEL` is the number of concurrent request slots.
-- `LLM_CTX_TOTAL` must equal `LLM_CTX_PER_SLOT * LLM_PARALLEL`.
-
-The base stack uses fixed, non-unified slots so the division is exact. Keep one
-slot free for the main agent. For noob's defaults of four detached children and
-a 131,072-token context, use:
+- `ROCMFP4_CTX_PER_SLOT` is the context available to one request.
+- `ROCMFP4_PARALLEL` is the number of concurrent slots.
+- `ROCMFP4_CTX_TOTAL` must equal their product.
 
 ```dotenv
-LLM_CTX_PER_SLOT=131072
-LLM_PARALLEL=5
-LLM_CTX_TOTAL=655360
+ROCMFP4_CTX_PER_SLOT=262144
+ROCMFP4_PARALLEL=5
+ROCMFP4_CTX_TOTAL=1310720
 ```
 
-The standard model, laguna-s-2.1 (48 layers, 8 KV heads, 128-wide K/V,
-sliding-window attention on most layers), loads five 131k slots at about 101 GiB
-of GTT: 70 GiB of weights plus roughly 31 GiB of KV cache and compute buffers,
-leaving ~15 GiB of the 116 GiB GTT window. The sliding-window layers are what
-make that possible; full attention on every layer at this geometry would cost
-about 24 GiB of f16 KV per slot and five slots would not fit. Do not copy this
-total to a model with a larger KV architecture
-without recalculating memory. If a model cannot fit five 131k slots, lower both
-noob's `NOOB_CTX` and `LLM_CTX_PER_SLOT`, or lower noob's
-`NOOB_TASK_CONCURRENCY` and retain `LLM_PARALLEL >= NOOB_TASK_CONCURRENCY + 1`.
+The [derivative model card](https://huggingface.co/plunderstruck/Qwen3.6-27B-OBLITERATED-MTP-ROCmFP4-GGUF) and [upstream Qwen config](https://huggingface.co/Qwen/Qwen3.6-27B/blob/main/config.json) both set the native limit to 262,144 tokens. That limit includes input and generated output. Five f16 slots need about 80 GiB for the full-attention KV tensors alone, before the 16.9 GB weights, recurrent state, and compute buffers. Use the raised GTT pool below.
 
-Validate the configured arithmetic before starting the service:
+Validate the configured arithmetic and Compose model:
 
 ```bash
-python3 scripts/check_context_config.py .env
+python3 scripts/check_context_config.py .env \
+  --prefix ROCMFP4 --noob-context 262144
 docker compose config -q
 ```
 
-After startup, verify the runtime slots, not just the Compose text:
+After startup, verify all five runtime slots:
 
 ```bash
-curl -fsS http://localhost:${LLM_PORT:-8080}/slots |
-  python3 scripts/check_context_config.py .env --slots-json -
+curl -fsS http://localhost:${ROCMFP4_PORT:-8080}/slots |
+  python3 scripts/check_context_config.py .env \
+    --prefix ROCMFP4 --noob-context 262144 --slots-json -
 ```
+
+The optional stock Vulkan stack keeps its separate `LLM_CTX_*` profile and runs with `docker compose -f docker-compose.vulkan.yml up -d`.
 
 ## GTT, not VRAM
 
 On Strix Halo the dedicated "VRAM" is a small BIOS carve-out; the 128 GB of unified RAM is reachable by the GPU as GTT. You want model weights in GTT, with VRAM near idle.
 
-The compose file sets `GGML_VK_PREFER_HOST_MEMORY=1` on the server. In llama.cpp's Vulkan backend this is a presence check (any value enables it), and it makes the allocator request host-visible/GTT memory first, with VRAM only as a fallback. On gfx1151 the backend is UMA and already prefers GTT by default; setting it makes that explicit and guaranteed.
+The default Compose file sets `GGML_HIP_ENABLE_UNIFIED_MEMORY=1` and `GGML_VK_PREFER_HOST_MEMORY=1`. The Vulkan setting is a presence check and makes the allocator request host-visible/GTT memory first.
 
 Prove it after the model loads:
 
 ```bash
-scripts/verify-gtt.sh --min-gtt-mib 14000     # ~14 GB model; adjust to yours
+scripts/verify-gtt.sh --min-gtt-mib 16000
 ```
 
 It waits for `/health`, then reads the kernel's amdgpu counters under `/sys/class/drm/card*/device/` (`mem_info_gtt_used`, `mem_info_vram_used`, in bytes) and asserts GTT carries the load while VRAM stays idle. `scripts/gpu_mem.py` is the underlying tool (`--json` for a raw snapshot). These sysfs counters are the source of truth on Strix Halo, where `rocm-smi` can misreport against the tiny VRAM pool. `amdgpu_top` and `radeontop` show the same split live.
@@ -126,33 +113,35 @@ cat /sys/module/ttm/parameters/pages_limit   # want 29360128, not 16182224
 python3 scripts/gpu_mem.py                    # gtt_total should read ~114688M
 ```
 
-For laguna the raise is not optional: the ~70 GiB of weights alone overflow the default pool, and context size only tunes the KV part. On a smaller raised pool, drop to one slot at 64k (`LLM_PARALLEL=1`, `LLM_CTX_PER_SLOT=65536`, `LLM_CTX_TOTAL=65536`) to trade the five-slot ~31 GiB of KV for a few GiB (this profile is outside what `check_context_config.py` validates, which assumes the noob five-slot layout).
+The five-slot Qwen profile also needs the raised pool. Its full-attention f16 KV allocation is about 80 GiB before weights and runtime buffers. Laguna's ~70 GiB of weights alone also overflow the stock pool.
 
-## ROCmFP4 + MTP (separate stack)
+## ROCmFP4 + MTP
 
-[plunderstruck](https://huggingface.co/collections/plunderstruck/rocmfp4-mtp-strix-halo)'s Qwen3.6 GGUFs use custom `Q4_0_ROCMFP4` tensor types that upstream llama.cpp does not know about, so the stock `server-vulkan` image cannot load them. Running them means building the [charlie12345/rocmfp4-llama](https://github.com/charlie12345/rocmfp4-llama) fork (branch `mtp-rocmfp4-strix`) from source. That is a different animal from the base stack, so it lives in its own file, `docker-compose.rocmfp4.yml`, and leaves the base stack and its "no ROCm" guarantee untouched.
+[plunderstruck](https://huggingface.co/collections/plunderstruck/rocmfp4-mtp-strix-halo)'s Qwen3.6 GGUFs use custom `Q4_0_ROCMFP4` tensor types that upstream llama.cpp does not know about, so the stock `server-vulkan` image cannot load them. The default Compose file builds [charlie12345/rocmfp4-llama](https://github.com/charlie12345/rocmfp4-llama), branch `mtp-rocmfp4-strix`. `docker-compose.rocmfp4.yml` remains as a compatibility entry point.
 
 The image is built from `ubuntu:26.04` LTS with a pinned [TheRock](https://github.com/ROCm/TheRock) ROCm 7.13 dist tarball (`ROCMFP4_THEROCK_VERSION` in `.env`, default `7.13.0a20260515`, the last 7.13 nightly). 7.13 is the first ROCm line with gfx1151 in the support matrix, so the old `HSA_OVERRIDE_GFX_VERSION` workaround is gone. The 26.04 toolchain also matters for speed: its current `glslc` compiles the Vulkan integer-dot shader variants the old 24.04 base silently skipped (the binary now reports `int dot: 1`), and the runtime carries mesa 26.0.3 RADV. Both backends are compiled in, so `-dev Vulkan0` and `-dev ROCm0` both work at runtime; the compose file mounts `/dev/dri` and `/dev/kfd` because the HIP-linked binary initializes ROCm at startup either way. The runtime image keeps the pruned ROCm libs it actually loads (~2.5 GB total), not the full SDK.
 
 The point of these builds is MTP self-speculative decoding: the model drafts its own tokens through a built-in MTP head (`--spec-type draft-mtp`), running on the same Vulkan device.
 
-Get the model (about 20 GB with the vision projector) into `MODELS_DIR`:
+Get the default model and template into `MODELS_DIR`:
 
 ```bash
-hf download plunderstruck/Qwen3.6-35B-A3B-MTP-ROCmFP4-GGUF \
-  --local-dir "$MODELS_DIR/Qwen3.6-35B-A3B-MTP-ROCmFP4"
+hf download plunderstruck/Qwen3.6-27B-OBLITERATED-MTP-ROCmFP4-GGUF \
+  Qwen3.6-27B-OBLITERATED-MTP-ROCmFP4-STRIX-embF16-imatrix-headQ6.gguf \
+  chat_template.jinja \
+  --local-dir "$MODELS_DIR/Qwen3.6-27b"
 ```
 
-Then build and run (first build compiles the fork, so it is slow):
+The first start compiles the fork:
 
 ```bash
-docker compose -f docker-compose.rocmfp4.yml up -d --build
-docker compose -f docker-compose.rocmfp4.yml logs -f rocmfp4-llm
+docker compose up -d
+docker compose logs -f llm
 ```
 
-It serves the OpenAI API on `:8080`. `ROCMFP4_MODEL`, `ROCMFP4_CTX` (model max is 262144), the TheRock pin, and the gfx target are all in `.env`. Vision is off by default; add `--mmproj /models/Qwen3.6-35B-A3B-MTP-ROCmFP4/mmproj-F32.gguf` to the command to enable the Qwen3-VL projector. `scripts/verify-gtt.sh --min-gtt-mib 18000` proves the load is in GTT here too.
+It serves the OpenAI API on `:8080`. Model, template, alias, five-slot context profile, TheRock pin, and gfx target are in `.env`. Vision is off by default; the model repository also provides `mmproj-F32.gguf`.
 
-Measured throughput at 2k to 32k context, next to the other models on this box, is in [Benchmarks](#benchmarks) below (full per-model detail in [docs/](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md)).
+Measured throughput at 2k to 32k context is in [Benchmarks](#benchmarks) below.
 
 ## Laguna ROCmFPX (separate stack)
 
@@ -178,7 +167,7 @@ It serves on `127.0.0.1:8080`. Its env settings are separate from the Qwen stack
 
 ## Benchmarks
 
-All on the same idle Strix Halo box (Radeon 8060S, RADV `STRIX_HALO`), through the actual served stacks: fresh prompts against `/completion`, generation forced to 128 tokens, best of 3 per point (`scripts/bench_server.py`). The laguna row is the base Vulkan stack (stock image, five 131k slots, no MTP, measured 2026-07-22); the Qwen rows are the ROCmFP4 + MTP stack (`-dev Vulkan0`, f16 KV, `-ub 1024`, MTP on, measured 2026-07-09). The arrow spans 2k context to the deepest depth measured for that model (in parentheses). MTP decode is content-dependent (draft acceptance), so treat it as a band, not a fixed number: the 27B swung 23 to 39 t/s across reps of the same config, and real chat (reasoning plus code generation, natural stop) lands the 35B at 77-86 t/s versus the table's 101-119 on predictable prose.
+All on the same idle Strix Halo box (Radeon 8060S, RADV `STRIX_HALO`), through the actual served stacks: fresh prompts against `/completion`, generation forced to 128 tokens, best of 3 per point (`scripts/bench_server.py`). The laguna row used the optional stock Vulkan stack. The Qwen rows used the ROCmFP4 + MTP stack (`-dev Vulkan0`, f16 KV, `-ub 1024`, MTP on). The 27B OBLITERATED row is the current default.
 
 | Model | Active / total | Quant | MTP | Prefill (t/s) | Decode (t/s) |
 |---|---|---|:--:|--:|--:|
@@ -192,8 +181,9 @@ Pure batch throughput is higher than the served numbers (MTP's draft context re-
 ## Layout
 
 ```text
-docker-compose.yml          base llm service
-docker-compose.rocmfp4.yml  ROCmFP4 + MTP service (builds the fork; ROCm + Vulkan)
+docker-compose.yml          default Qwen ROCmFP4 + MTP service
+docker-compose.rocmfp4.yml  compatibility entry point for the default service
+docker-compose.vulkan.yml   optional stock llama.cpp Vulkan service
 docker-compose.laguna-rocmfpx.yml  Laguna ROCmFPX Runtime V2 service (Vulkan)
 .env.example                model, ports, GPU group IDs, custom-runtime knobs
 scripts/gpu_mem.py          read amdgpu VRAM vs GTT counters; --verify mode
@@ -223,4 +213,4 @@ The ROCmFP4 stack here is packaging and measurement; the actual work belongs to:
 
 ## License
 
-[MIT](LICENSE) for the build glue here. The base stack pulls a prebuilt image; the ROCmFP4 stack builds the charlie12345/rocmfp4-llama fork, itself an MIT llama.cpp derivative. Models are mounted read-only and the GGUF weights carry their own licenses (Gemma, Llama, Qwen, etc.). You are responsible for complying with each model's terms.
+[MIT](LICENSE) for the build glue here. The optional stock stack pulls a prebuilt image; the default ROCmFP4 stack builds the charlie12345/rocmfp4-llama fork, itself an MIT llama.cpp derivative. Models are mounted read-only and the GGUF weights carry their own licenses (Gemma, Llama, Qwen, etc.). You are responsible for complying with each model's terms.

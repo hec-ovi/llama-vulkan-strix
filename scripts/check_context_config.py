@@ -37,24 +37,32 @@ def positive(values: dict[str, str], name: str) -> int:
     return value
 
 
-def validate(values: dict[str, str], child_concurrency: int, noob_ctx: int) -> tuple[int, int, int]:
-    per_slot = positive(values, "LLM_CTX_PER_SLOT")
-    parallel = positive(values, "LLM_PARALLEL")
-    total = positive(values, "LLM_CTX_TOTAL")
+def validate(
+    values: dict[str, str],
+    child_concurrency: int,
+    noob_ctx: int,
+    prefix: str = "LLM",
+) -> tuple[int, int, int]:
+    per_slot_name = f"{prefix}_CTX_PER_SLOT"
+    parallel_name = f"{prefix}_PARALLEL"
+    total_name = f"{prefix}_CTX_TOTAL"
+    per_slot = positive(values, per_slot_name)
+    parallel = positive(values, parallel_name)
+    total = positive(values, total_name)
     expected = per_slot * parallel
     if total != expected:
         raise ValueError(
-            f"LLM_CTX_TOTAL is {total}, expected {per_slot} * {parallel} = {expected}"
+            f"{total_name} is {total}, expected {per_slot} * {parallel} = {expected}"
         )
     needed = child_concurrency + 1
     if parallel < needed:
         raise ValueError(
-            f"LLM_PARALLEL is {parallel}; need at least {needed} to reserve one parent "
+            f"{parallel_name} is {parallel}; need at least {needed} to reserve one parent "
             f"slot beside {child_concurrency} child slots"
         )
     if per_slot != noob_ctx:
         raise ValueError(
-            f"LLM_CTX_PER_SLOT is {per_slot}, but noob context is {noob_ctx}; align them"
+            f"{per_slot_name} is {per_slot}, but noob context is {noob_ctx}; align them"
         )
     return per_slot, parallel, total
 
@@ -90,12 +98,17 @@ def main() -> int:
         default=131072,
         help="noob per-request context (default: 131072)",
     )
+    parser.add_argument(
+        "--prefix",
+        default="LLM",
+        help="context variable prefix (default: LLM)",
+    )
     parser.add_argument("--slots-json", help="GET /slots JSON path, or - for stdin")
     args = parser.parse_args()
     try:
         values = load_env(args.env_file)
         per_slot, parallel, total = validate(
-            values, args.child_concurrency, args.noob_context
+            values, args.child_concurrency, args.noob_context, args.prefix
         )
         if args.slots_json:
             validate_slots(args.slots_json, per_slot, parallel)

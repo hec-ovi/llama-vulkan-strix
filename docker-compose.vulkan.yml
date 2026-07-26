@@ -1,0 +1,81 @@
+name: llama-vulkan-strix
+
+# Optional stock llama.cpp OpenAI-compatible server on the Vulkan backend, for
+# testing standard GGUF models on an AMD Strix Halo APU (gfx1151). Config lives in ./.env
+# (cp .env.example .env). Models are mounted read-only from MODELS_DIR.
+#
+# One service: llm - ghcr.io/ggml-org/llama.cpp:server-vulkan.
+# One pulled image, no build.
+
+services:
+  llm:
+    image: ghcr.io/ggml-org/llama.cpp:server-vulkan
+    container_name: llama-vulkan
+    restart: unless-stopped
+    # Vulkan needs the render node only. No /dev/kfd, no ROCm, no privileged.
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${RENDER_GID:-990}"
+      - "${VIDEO_GID:-44}"
+    environment:
+      # Force model weights into GTT (the 128 GB unified RAM), not the small BIOS
+      # VRAM carve-out. llama.cpp treats this as a PRESENCE check: ANY value (even
+      # 0) enables it, so it is set to 1 and left on by design. On gfx1151 the
+      # Vulkan backend is UMA and already prefers host-visible/GTT memory; this
+      # makes it explicit and guaranteed. Proof: scripts/verify-gtt.sh.
+      - GGML_VK_PREFER_HOST_MEMORY=1
+    volumes:
+      - ${MODELS_DIR:-./models}:/models:ro
+    ports:
+      - "${LLM_PORT:-8080}:8080"
+    # list form avoids shell-quoting issues; the image entrypoint is llama-server
+    command:
+      - --model
+      # fail loud at `up`/`config` if LLM_MODEL is blank, instead of passing
+      # llama-server a bare /models/ directory and erroring cryptically at load
+      - /models/${LLM_MODEL:?set LLM_MODEL in .env to a GGUF file path relative to MODELS_DIR}
+      - --alias
+      - ${LLM_ALIAS:-llm}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --n-gpu-layers
+      - "${LLM_NGL:-99}"
+      - --ctx-size
+      # llama.cpp divides this total KV cache across the fixed server slots.
+      # Keep LLM_CTX_TOTAL = LLM_CTX_PER_SLOT * LLM_PARALLEL; the validator and
+      # /slots check documented in the README catch drift.
+      - "${LLM_CTX_TOTAL:-655360}"
+      - --parallel
+      # Five slots reserve one request for the parent while noob's four
+      # detached children are active.
+      - "${LLM_PARALLEL:-5}"
+      # Fixed, equally sized slots make the per-request context contract exact.
+      - --no-kv-unified
+      - --jinja
+      - --reasoning
+      - "off"
+      # The server's RAM prompt cache (prompt_save on slot reuse) hits
+      # "GGML_ASSERT(tensor->data != NULL)" and crashes the whole server on the
+      # SECOND request with this build (see logs). Off until a fixed build is pinned.
+      - --cache-ram
+      - "0"
+      # Per-model template file, like ROCMFP4_CHAT_TEMPLATE on the other stack.
+      # Some GGUFs embed a stale template (gemma needed the 2026-07-15 refresh),
+      # so every model keeps its jinja next to the GGUF and .env points here.
+      - --chat-template-file
+      - /models/${LLM_CHAT_TEMPLATE:?set LLM_CHAT_TEMPLATE in .env to a jinja file path relative to MODELS_DIR}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 40
+      start_period: 300s
+    networks:
+      - llmnet
+
+networks:
+  llmnet:
+    driver: bridge

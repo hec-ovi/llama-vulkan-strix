@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_PATH = ROOT / "docker-compose.laguna-rocmfpx.yml"
 DOCKERFILE_PATH = ROOT / "tools" / "Dockerfile.laguna-rocmfpx"
 ENTRYPOINT_PATH = ROOT / "tools" / "entrypoint.laguna-rocmfpx.sh"
-BASE_COMPOSE_PATH = ROOT / "docker-compose.yml"
-QWEN_COMPOSE_PATH = ROOT / "docker-compose.rocmfp4.yml"
+BASE_COMPOSE_PATH = ROOT / "docker-compose.vulkan.yml"
+QWEN_COMPOSE_PATH = ROOT / "docker-compose.yml"
 
 COMPOSE_TEXT = COMPOSE_PATH.read_text()
 DOCKERFILE = DOCKERFILE_PATH.read_text()

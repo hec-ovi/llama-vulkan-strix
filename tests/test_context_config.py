@@ -25,6 +25,19 @@ def test_valid_noob_profile_reserves_parent_and_four_children():
     assert MODULE.validate(values(), 4, 131072) == (131072, 5, 655360)
 
 
+def test_valid_rocmfp4_profile_has_five_native_max_slots():
+    rocm_values = {
+        "ROCMFP4_CTX_PER_SLOT": "262144",
+        "ROCMFP4_PARALLEL": "5",
+        "ROCMFP4_CTX_TOTAL": "1310720",
+    }
+    assert MODULE.validate(rocm_values, 4, 262144, "ROCMFP4") == (
+        262144,
+        5,
+        1310720,
+    )
+
+
 def test_rejects_bad_math_missing_parent_capacity_and_context_drift():
     with pytest.raises(ValueError, match="expected"):
         MODULE.validate(values(total="655359"), 4, 131072)

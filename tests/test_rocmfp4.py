@@ -1,4 +1,4 @@
-"""Invariants of the ROCmFP4 + MTP stack (docker-compose.rocmfp4.yml + its
+"""Invariants of the default ROCmFP4 + MTP stack (docker-compose.yml + its
 Dockerfile). This stack deliberately does what the base stack must NOT: it builds
 the custom fork from source and mounts /dev/kfd. These tests pin that intent so a
 future edit cannot quietly turn it back into (or away from) what it needs to be.
@@ -12,13 +12,14 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-COMPOSE_PATH = ROOT / "docker-compose.rocmfp4.yml"
-BASE_COMPOSE_PATH = ROOT / "docker-compose.yml"
+COMPOSE_PATH = ROOT / "docker-compose.yml"
+BASE_COMPOSE_PATH = ROOT / "docker-compose.vulkan.yml"
+COMPAT_COMPOSE_PATH = ROOT / "docker-compose.rocmfp4.yml"
 DOCKERFILE = (ROOT / "tools" / "Dockerfile.rocmfp4").read_text()
 
 COMPOSE_TEXT = COMPOSE_PATH.read_text()
 COMPOSE = yaml.safe_load(COMPOSE_TEXT)
-SVC = COMPOSE["services"]["rocmfp4-llm"]
+SVC = COMPOSE["services"]["llm"]
 CMD = SVC["command"]
 
 
@@ -62,14 +63,24 @@ def test_mounts_models_read_only():
 
 
 def test_model_path_fails_fast_when_blank():
-    # Same guard as the base stack: blank ROCMFP4_MODEL errors at compose time.
+    # Blank ROCMFP4_MODEL errors at compose time.
     assert "${ROCMFP4_MODEL:?" in COMPOSE_TEXT
+
+
+def test_chat_template_path_fails_fast_when_blank():
+    assert "${ROCMFP4_CHAT_TEMPLATE:?" in COMPOSE_TEXT
 
 
 def test_mtp_self_speculation_enabled():
     # draft-mtp is the reason these builds exist; losing it silently is a regression.
     assert _after("--spec-type") == "draft-mtp"
     assert "--spec-draft-ngl" in CMD
+
+
+def test_five_fixed_slots_each_get_native_max_context():
+    assert _after("--ctx-size") == "${ROCMFP4_CTX_TOTAL:-1310720}"
+    assert _after("--parallel") == "${ROCMFP4_PARALLEL:-5}"
+    assert "--no-kv-unified" in CMD
 
 
 def test_forces_gtt_on_both_backends():
@@ -110,3 +121,9 @@ def test_uses_standard_llamacpp_host_port():
     base_ports = _default_host_ports(BASE_COMPOSE_PATH.read_text())
     rocmfp4_ports = _default_host_ports(COMPOSE_TEXT)
     assert base_ports == rocmfp4_ports == {8080}
+
+
+def test_legacy_rocmfp4_entry_point_extends_the_default_service():
+    compat = yaml.safe_load(COMPAT_COMPOSE_PATH.read_text())
+    extended = compat["services"]["rocmfp4-llm"]["extends"]
+    assert extended == {"file": "docker-compose.yml", "service": "llm"}

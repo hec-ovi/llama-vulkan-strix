@@ -1,15 +1,14 @@
 name: llama-laguna-rocmfpx-strix
 
-# Laguna ROCmFP4 llama.cpp on Strix Halo (gfx1151). SEPARATE from the base
-# docker-compose.yml on purpose. The base stack pulls a stock image, needs no
-# ROCm and no custom tensor support. This stack builds ciru-ai/ROCmFPX at the
-# Runtime V2 commit pinned by the Laguna model card. ROCmFP4 is the weight format;
-# compute runs through Vulkan, so this stack needs /dev/dri but not /dev/kfd.
+# Laguna ROCmFP4 llama.cpp on Strix Halo (gfx1151), separate from the default
+# Qwen stack. It builds ciru-ai/ROCmFPX at the Runtime V2 commit pinned by the
+# Laguna model card. ROCmFP4 is the weight format; compute runs through Vulkan,
+# so this stack needs /dev/dri but not /dev/kfd.
 #
 #   docker compose -f docker-compose.laguna-rocmfpx.yml up -d --build
 #   docker compose -f docker-compose.laguna-rocmfpx.yml logs -f laguna-llm
 #
-# Config is shared with the base stack via ./.env (same MODELS_DIR, GPU GIDs).
+# Runtime and model configuration live in ./.env.
 
 services:
   laguna-llm:

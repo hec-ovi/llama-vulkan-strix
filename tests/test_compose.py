@@ -1,17 +1,13 @@
-"""Invariants of docker-compose.yml: the Vulkan/GTT wiring is what we expect.
+"""The plain Docker Compose command starts the selected 27B ROCmFP4 model."""
 
-Text-based so it runs with only pytest. CI additionally runs
-`docker compose config -q` (base and the tools profile) for full schema validation.
-"""
 from pathlib import Path
 
+import yaml
+
+
 ROOT = Path(__file__).resolve().parent.parent
-COMPOSE = (ROOT / "docker-compose.yml").read_text()
-# Active config only, so prose in comments (which mention /dev/kfd, privileged,
-# etc. to say we DON'T use them) never satisfies or trips an assertion.
-CODE = "\n".join(
-    ln for ln in COMPOSE.splitlines() if ln.strip() and not ln.lstrip().startswith("#")
-)
+COMPOSE_TEXT = (ROOT / "docker-compose.yml").read_text()
+COMPOSE = yaml.safe_load(COMPOSE_TEXT)
 ENV_EXAMPLE = {
     key: value
     for line in (ROOT / ".env.example").read_text().splitlines()
@@ -19,64 +15,29 @@ ENV_EXAMPLE = {
     for key, value in [line.split("=", 1)]
 }
 
-
-def test_uses_prebuilt_llamacpp_vulkan_image():
-    assert "image: ghcr.io/ggml-org/llama.cpp:server-vulkan" in CODE
-
-
-def test_vulkan_needs_only_dri_not_kfd():
-    assert "/dev/dri:/dev/dri" in CODE
-    # Vulkan path must not pull in the ROCm/KFD node; that would be scope creep.
-    assert "/dev/kfd" not in CODE
-    assert "privileged: true" not in CODE
+MODEL = (
+    "Qwen3.6-27b/"
+    "Qwen3.6-27B-OBLITERATED-MTP-ROCmFP4-STRIX-embF16-imatrix-headQ6.gguf"
+)
 
 
-def test_forces_gtt_over_vram():
-    assert "GGML_VK_PREFER_HOST_MEMORY=1" in CODE
+def test_plain_compose_uses_rocmfp4_mtp_service():
+    assert set(COMPOSE["services"]) == {"llm"}
+    service = COMPOSE["services"]["llm"]
+    assert service["build"]["dockerfile"] == "tools/Dockerfile.rocmfp4"
+    assert "--spec-type" in service["command"]
+    assert "draft-mtp" in service["command"]
 
 
-def test_mounts_models_read_only():
-    assert ":/models:ro" in CODE
-
-
-def test_server_knobs_present():
-    for flag in ("--n-gpu-layers", "--ctx-size", "--parallel", "--model"):
-        assert flag in CODE, flag
-
-
-def test_disables_reasoning_with_supported_server_flag():
-    assert "--reasoning" in CODE
-    assert '- "off"' in CODE
-    assert "--chat-template-kwargs" not in CODE
-
-
-def test_parallel_defaults_reserve_a_parent_slot_and_divide_exactly():
-    per_slot = int(ENV_EXAMPLE["LLM_CTX_PER_SLOT"])
-    parallel = int(ENV_EXAMPLE["LLM_PARALLEL"])
-    total = int(ENV_EXAMPLE["LLM_CTX_TOTAL"])
-    assert parallel >= 5  # one parent plus noob's default four children
+def test_example_env_selects_27b_obliterated_at_native_max_context():
+    assert ENV_EXAMPLE["ROCMFP4_MODEL"] == MODEL
+    assert ENV_EXAMPLE["ROCMFP4_CHAT_TEMPLATE"] == "Qwen3.6-27b/chat_template.jinja"
+    assert ENV_EXAMPLE["ROCMFP4_ALIAS"] == "qwen3.6-27b-obliterated-mtp"
+    per_slot = int(ENV_EXAMPLE["ROCMFP4_CTX_PER_SLOT"])
+    parallel = int(ENV_EXAMPLE["ROCMFP4_PARALLEL"])
+    total = int(ENV_EXAMPLE["ROCMFP4_CTX_TOTAL"])
+    assert (per_slot, parallel, total) == (262144, 5, 1310720)
     assert total == per_slot * parallel
-    assert "${LLM_CTX_TOTAL:-655360}" in CODE
-    assert "${LLM_PARALLEL:-5}" in CODE
-    assert "--no-kv-unified" in CODE
-
-
-def test_llm_model_fails_fast_when_blank():
-    # A blank/unset LLM_MODEL must fail at compose time (the :? guard), not pass
-    # llama-server a bare /models/ directory that errors cryptically at load.
-    assert "${LLM_MODEL:?" in CODE
-
-
-def test_chat_template_fails_fast_when_blank():
-    # Same fail-at-compose-time guard as LLM_MODEL: a blank LLM_CHAT_TEMPLATE
-    # must not send llama-server a bare /models/ path as a template file.
-    assert "${LLM_CHAT_TEMPLATE:?" in CODE
-    assert "LLM_CHAT_TEMPLATE" in ENV_EXAMPLE
-
-
-def test_single_service_no_sidecars():
-    # One repo, one responsibility: the compose file defines the llm service
-    # and nothing else. Web search lives in its own repo (hec-ovi/websearch-skill).
-    assert "websearch" not in CODE
-    assert 'profiles:' not in CODE
-    assert CODE.count("container_name") == 1
+    assert "${ROCMFP4_CTX_TOTAL:-1310720}" in COMPOSE_TEXT
+    assert "${ROCMFP4_PARALLEL:-5}" in COMPOSE_TEXT
+    assert "--no-kv-unified" in COMPOSE["services"]["llm"]["command"]
