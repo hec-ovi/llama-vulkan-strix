@@ -152,6 +152,28 @@ It serves the OpenAI API on `:8081` (host), separate from the base stack's port.
 
 Measured throughput at 2k to 32k context, next to the other models on this box, is in [Benchmarks](#benchmarks) below (full per-model detail in [docs/](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md)).
 
+## Laguna ROCmFPX (separate stack)
+
+The [Laguna S 2.1 Chadrock ROCmFP4 V4 GGUF](https://huggingface.co/jcbtc/Laguna-S-2.1-Chadrock-ROCmFP4-StrixKVSpine-V4-GGUF) uses Laguna architecture support that is absent from the Qwen ROCmFP4 fork above. `docker-compose.laguna-rocmfpx.yml` builds the model card's exact Ciru ROCmFPX Runtime V2 commit. The runtime is Vulkan-only, so the container gets `/dev/dri`, not `/dev/kfd`.
+
+Download the 60.945 GiB file beside the other Laguna models:
+
+```bash
+HF_TOKEN="$HF_TOKEN" hf download \
+  jcbtc/Laguna-S-2.1-Chadrock-ROCmFP4-StrixKVSpine-V4-GGUF \
+  laguna-s-2.1-ROCmFP4-StrixKVSpine-v4.gguf \
+  --local-dir "$MODELS_DIR/laguna-s-2.1"
+```
+
+Then build and run it:
+
+```bash
+docker compose -f docker-compose.laguna-rocmfpx.yml up -d --build
+docker compose -f docker-compose.laguna-rocmfpx.yml logs -f laguna-llm
+```
+
+It serves on `127.0.0.1:8082`. Its env settings are separate from the Qwen stack. The default 131072-token profile uses the Runtime V2 submission limits validated by the model author. The container verifies the published model SHA-256 before launch, runs unprivileged with a read-only root filesystem and no Linux capabilities, and mounts model files read-only.
+
 ## Benchmarks
 
 All on the same idle Strix Halo box (Radeon 8060S, RADV `STRIX_HALO`), through the actual served stacks: fresh prompts against `/completion`, generation forced to 128 tokens, best of 3 per point (`scripts/bench_server.py`). The laguna row is the base Vulkan stack (stock image, five 131k slots, no MTP, measured 2026-07-22); the Qwen rows are the ROCmFP4 + MTP stack (`-dev Vulkan0`, f16 KV, `-ub 1024`, MTP on, measured 2026-07-09). The arrow spans 2k context to the deepest depth measured for that model (in parentheses). MTP decode is content-dependent (draft acceptance), so treat it as a band, not a fixed number: the 27B swung 23 to 39 t/s across reps of the same config, and real chat (reasoning plus code generation, natural stop) lands the 35B at 77-86 t/s versus the table's 101-119 on predictable prose.
@@ -170,13 +192,15 @@ Pure batch throughput is higher than the served numbers (MTP's draft context re-
 ```text
 docker-compose.yml          base llm service
 docker-compose.rocmfp4.yml  ROCmFP4 + MTP service (builds the fork; ROCm + Vulkan)
-.env.example                model, ports, GPU group IDs, ROCmFP4 knobs
+docker-compose.laguna-rocmfpx.yml  Laguna ROCmFPX Runtime V2 service (Vulkan)
+.env.example                model, ports, GPU group IDs, custom-runtime knobs
 scripts/gpu_mem.py          read amdgpu VRAM vs GTT counters; --verify mode
 scripts/verify-gtt.sh       wait for /health, then assert model is in GTT
 scripts/bench_server.py     served prefill/decode by context depth (docs/ tables)
 tools/Dockerfile.rocmfp4    the ROCmFP4 fork build (server target, gfx1151)
+tools/Dockerfile.laguna-rocmfpx  pinned Laguna ROCmFPX Runtime V2 build
 docs/                       per-model benchmarks and run notes
-tests/                      compose invariants, gpu_mem parser, wrapper, rocmfp4, bench
+tests/                      compose invariants, gpu_mem parser, custom stacks, bench
 ```
 
 Run the tests (they need pytest and PyYAML, no Docker and no GPU):

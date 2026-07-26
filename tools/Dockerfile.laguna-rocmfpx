@@ -1,0 +1,65 @@
+# Laguna ROCmFP4 runtime for AMD Strix Halo.
+#
+# The GGUF uses custom ROCmFP4 tensors and Laguna architecture support from
+# ciru-ai/ROCmFPX. The pinned Runtime V2 commit also carries the Vulkan dispatch
+# fixes validated for 131072-token contexts on gfx1151. The build is Vulkan-only:
+# ROCmFP4 is the weight format, not the compute backend.
+
+ARG UBUNTU_BASE=ubuntu:26.04
+ARG ROCMFPX_REPO=https://github.com/ciru-ai/ROCmFPX.git
+ARG ROCMFPX_REF=090e317b4e2f998a9470faeb076cf841ba72b739
+
+FROM ${UBUNTU_BASE} AS build
+
+ARG ROCMFPX_REPO
+ARG ROCMFPX_REF
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    cmake \
+    git \
+    glslc \
+    libssl-dev \
+    libvulkan-dev \
+    ninja-build \
+    spirv-headers \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Fetch exactly the model-card runtime commit without carrying repository history.
+RUN git init \
+    && git remote add origin "${ROCMFPX_REPO}" \
+    && git fetch --depth 1 origin "${ROCMFPX_REF}" \
+    && git checkout --detach FETCH_HEAD \
+    && test "$(git rev-parse HEAD)" = "${ROCMFPX_REF}"
+
+RUN JOBS="$(nproc)" BUILD_TYPE=Release scripts/build-laguna-strix-vulkan.sh
+
+FROM ${UBUNTU_BASE} AS server
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+    curl \
+    libatomic1 \
+    libgomp1 \
+    libvulkan1 \
+    mesa-vulkan-drivers \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+ENV LLAMA_ARG_HOST=0.0.0.0
+
+COPY --from=build /app/build-laguna-strix-vulkan/bin/llama-server /app/
+COPY --from=build /app/build-laguna-strix-vulkan/bin/llama-bench /app/
+COPY --from=build /app/build-laguna-strix-vulkan/bin/llama-cli /app/
+COPY --chmod=0555 entrypoint.laguna-rocmfpx.sh /app/entrypoint.sh
+
+WORKDIR /app
+
+USER 10001:10001
+
+HEALTHCHECK CMD ["curl", "-f", "http://localhost:8080/health"]
+ENTRYPOINT ["/app/entrypoint.sh"]

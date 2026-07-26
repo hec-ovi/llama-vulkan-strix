@@ -1,0 +1,103 @@
+name: llama-laguna-rocmfpx-strix
+
+# Laguna ROCmFP4 llama.cpp on Strix Halo (gfx1151). SEPARATE from the base
+# docker-compose.yml on purpose. The base stack pulls a stock image, needs no
+# ROCm and no custom tensor support. This stack builds ciru-ai/ROCmFPX at the
+# Runtime V2 commit pinned by the Laguna model card. ROCmFP4 is the weight format;
+# compute runs through Vulkan, so this stack needs /dev/dri but not /dev/kfd.
+#
+#   docker compose -f docker-compose.laguna-rocmfpx.yml up -d --build
+#   docker compose -f docker-compose.laguna-rocmfpx.yml logs -f laguna-llm
+#
+# Config is shared with the base stack via ./.env (same MODELS_DIR, GPU GIDs).
+
+services:
+  laguna-llm:
+    build:
+      # This context contains no .env or model files.
+      context: ./tools
+      dockerfile: Dockerfile.laguna-rocmfpx
+    image: llama-laguna-rocmfpx-strix:latest
+    container_name: llama-laguna-rocmfpx
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${RENDER_GID:-990}"
+      - "${VIDEO_GID:-44}"
+    environment:
+      # Keep weights and KV in GTT, not the small VRAM carve-out.
+      - GGML_VK_PREFER_HOST_MEMORY=1
+      - XDG_CACHE_HOME=/tmp
+      # Runtime V2 safe profile, validated through a complete 128K prefill.
+      - GGML_VK_MAX_NODES_PER_SUBMIT=10
+      - GGML_VK_FA_MAX_WORKGROUPS_X_PER_DISPATCH=4
+    volumes:
+      - ${MODELS_DIR:-./models}:/models:ro
+    # 8082 avoids the base Vulkan stack on 8080 and Qwen ROCmFP4 on 8081.
+    ports:
+      - "${LAGUNA_ROCMFPX_BIND:-127.0.0.1}:${LAGUNA_ROCMFPX_PORT:-8082}:8080"
+    command:
+      - --model
+      - /models/${LAGUNA_ROCMFPX_MODEL:?set LAGUNA_ROCMFPX_MODEL in .env to the Laguna ROCmFP4 GGUF path relative to MODELS_DIR}
+      - --alias
+      - ${LAGUNA_ROCMFPX_ALIAS:-laguna-s21-rocmfp4-strixkvspine-v4}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --device
+      - Vulkan0
+      - --n-gpu-layers
+      - "999"
+      - --split-mode
+      - row
+      - --ctx-size
+      - "${LAGUNA_ROCMFPX_CTX:-131072}"
+      - --cache-type-k
+      - f16
+      - --cache-type-v
+      - f16
+      - --flash-attn
+      - "on"
+      - --batch-size
+      - "2048"
+      - --ubatch-size
+      - "512"
+      - --threads
+      - "16"
+      - --threads-batch
+      - "16"
+      - --parallel
+      - "1"
+      - --spec-type
+      - none
+      - --jinja
+      - --reasoning
+      - "off"
+      - --reasoning-format
+      - none
+      - --reasoning-budget
+      - "0"
+      - --no-mmproj
+      - --metrics
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 60
+      # Loading a 60.9 GiB model from disk can take several minutes.
+      start_period: 1200s
+    networks:
+      - llmnet
+
+networks:
+  llmnet:
+    driver: bridge
