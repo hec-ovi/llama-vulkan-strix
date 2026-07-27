@@ -1,4 +1,5 @@
-"""The plain Docker Compose command starts the selected 27B ROCmFP4 model."""
+"""The plain Docker Compose command starts the stock Vulkan service, and the
+repo ships no default model: the user picks one in .env."""
 
 from pathlib import Path
 
@@ -15,51 +16,32 @@ ENV_EXAMPLE = {
     for key, value in [line.split("=", 1)]
 }
 
-MODEL = (
-    "Qwen3.6-27b/"
-    "Qwen3.6-27B-OBLITERATED-MTP-ROCmFP4-STRIX-embF16-imatrix-headQ6.gguf"
-)
 
-
-def test_plain_compose_uses_rocmfp4_mtp_service():
+def test_plain_compose_uses_stock_vulkan_service():
     assert set(COMPOSE["services"]) == {"llm"}
     service = COMPOSE["services"]["llm"]
+    assert service["image"] == "ghcr.io/ggml-org/llama.cpp:server-vulkan"
+    assert "build" not in service
+    assert "--spec-type" not in service["command"]
+
+
+def test_example_env_ships_no_default_model():
+    # No model is "the standard" on the repo: .env.example leaves the model
+    # and template paths blank so the compose :? guards fail loud until the
+    # user picks one. Examples live in comments above the blank lines.
+    assert ENV_EXAMPLE["LLM_MODEL"] == ""
+    assert ENV_EXAMPLE["LLM_CHAT_TEMPLATE"] == ""
+    assert ENV_EXAMPLE["ROCMFP4_MODEL"] == ""
+    assert ENV_EXAMPLE["ROCMFP4_CHAT_TEMPLATE"] == ""
+    assert "${LLM_MODEL:?" in COMPOSE_TEXT
+    assert "${LLM_CHAT_TEMPLATE:?" in COMPOSE_TEXT
+
+
+def test_rocmfp4_stack_is_not_the_default():
+    # The ROCmFP4 + MTP fork moved out of the default file into its own.
+    assert "Dockerfile.rocmfp4" not in COMPOSE_TEXT
+    assert "/dev/kfd" not in "\n".join(COMPOSE["services"]["llm"]["devices"])
+    rocmfp4 = yaml.safe_load((ROOT / "docker-compose.rocmfp4.yml").read_text())
+    service = rocmfp4["services"]["llm"]
     assert service["build"]["dockerfile"] == "tools/Dockerfile.rocmfp4"
-    assert "image" not in service
-    assert "--spec-type" in service["command"]
     assert "draft-mtp" in service["command"]
-
-
-def test_example_env_selects_27b_obliterated_at_native_max_context():
-    assert ENV_EXAMPLE["ROCMFP4_MODEL"] == MODEL
-    assert ENV_EXAMPLE["ROCMFP4_CHAT_TEMPLATE"] == "Qwen3.6-27b/chat_template.jinja"
-    assert ENV_EXAMPLE["ROCMFP4_ALIAS"] == "qwen3.6-27b-obliterated-mtp"
-    per_slot = int(ENV_EXAMPLE["ROCMFP4_CTX_PER_SLOT"])
-    parallel = int(ENV_EXAMPLE["ROCMFP4_PARALLEL"])
-    total = int(ENV_EXAMPLE["ROCMFP4_CTX_TOTAL"])
-    assert (per_slot, parallel, total) == (262144, 5, 1310720)
-    assert total == per_slot * parallel
-    assert "${ROCMFP4_CTX_TOTAL:-1310720}" in COMPOSE_TEXT
-    assert "${ROCMFP4_PARALLEL:-5}" in COMPOSE_TEXT
-    assert "--no-kv-unified" in COMPOSE["services"]["llm"]["command"]
-
-
-def test_default_profile_stays_below_host_memory_budget():
-    service = COMPOSE["services"]["llm"]
-    command = service["command"]
-    assert service["mem_limit"] == "${ROCMFP4_MEMORY_LIMIT:-90g}"
-    assert service["memswap_limit"] == "${ROCMFP4_MEMORY_LIMIT:-90g}"
-    assert ENV_EXAMPLE["ROCMFP4_MEMORY_LIMIT"] == "90g"
-    assert ENV_EXAMPLE["ROCMFP4_KV_TYPE"] == "q8_0"
-    assert ENV_EXAMPLE["ROCMFP4_DRAFT_KV_TYPE"] == "q4_0"
-    assert command[command.index("-ctk") + 1] == "${ROCMFP4_KV_TYPE:-q8_0}"
-    assert command[command.index("-ctv") + 1] == "${ROCMFP4_KV_TYPE:-q8_0}"
-    assert command[command.index("--spec-draft-type-k") + 1] == (
-        "${ROCMFP4_DRAFT_KV_TYPE:-q4_0}"
-    )
-    assert command[command.index("--spec-draft-type-v") + 1] == (
-        "${ROCMFP4_DRAFT_KV_TYPE:-q4_0}"
-    )
-    assert command[command.index("--cache-ram") + 1] == "0"
-    assert command[command.index("--ctx-checkpoints") + 1] == "0"
-    assert command[command.index("--checkpoint-every-n-tokens") + 1] == "-1"

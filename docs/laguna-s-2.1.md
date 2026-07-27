@@ -1,6 +1,6 @@
 # laguna-s-2.1 (Q4_K_M) on Strix Halo
 
-Benchmarks and run notes for poolside's Laguna S 2.1, the standard model of the base Vulkan stack (`docker-compose.yml`, stock `ghcr.io/ggml-org/llama.cpp:server-vulkan` image, no fork, no MTP). Measured 2026-07-22.
+Benchmarks and run notes for poolside's Laguna S 2.1, served through the default stock Vulkan stack (`docker-compose.yml`, stock `ghcr.io/ggml-org/llama.cpp:server-vulkan` image, no fork, no MTP). Measured 2026-07-22.
 
 ## The model
 

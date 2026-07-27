@@ -1,7 +1,8 @@
-"""Invariants of the default ROCmFP4 + MTP stack (docker-compose.yml + its
-Dockerfile). This stack deliberately does what the base stack must NOT: it builds
-the custom fork from source and mounts /dev/kfd. These tests pin that intent so a
-future edit cannot quietly turn it back into (or away from) what it needs to be.
+"""Invariants of the optional ROCmFP4 + MTP stack (docker-compose.rocmfp4.yml +
+its Dockerfile). This stack deliberately does what the default stack must NOT:
+it builds the custom fork from source and mounts /dev/kfd. These tests pin that
+intent so a future edit cannot quietly turn it back into (or away from) what it
+needs to be.
 
 Parsed with PyYAML for structure; the Dockerfile is checked as text. Both run
 with only pytest + pyyaml, no Docker and no GPU.
@@ -12,9 +13,9 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-COMPOSE_PATH = ROOT / "docker-compose.yml"
-BASE_COMPOSE_PATH = ROOT / "docker-compose.vulkan.yml"
-COMPAT_COMPOSE_PATH = ROOT / "docker-compose.rocmfp4.yml"
+COMPOSE_PATH = ROOT / "docker-compose.rocmfp4.yml"
+BASE_COMPOSE_PATH = ROOT / "docker-compose.yml"
+COMPAT_COMPOSE_PATH = ROOT / "docker-compose.vulkan.yml"
 DOCKERFILE = (ROOT / "tools" / "Dockerfile.rocmfp4").read_text()
 
 COMPOSE_TEXT = COMPOSE_PATH.read_text()
@@ -136,7 +137,7 @@ def test_uses_standard_llamacpp_host_port():
     assert base_ports == rocmfp4_ports == {8080}
 
 
-def test_legacy_rocmfp4_entry_point_extends_the_default_service():
+def test_legacy_vulkan_entry_point_extends_the_default_service():
     compat = yaml.safe_load(COMPAT_COMPOSE_PATH.read_text())
-    extended = compat["services"]["rocmfp4-llm"]["extends"]
+    extended = compat["services"]["vulkan-llm"]["extends"]
     assert extended == {"file": "docker-compose.yml", "service": "llm"}

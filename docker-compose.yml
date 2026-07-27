@@ -1,151 +1,84 @@
 name: llama-vulkan-strix
 
-# Default ROCmFP4 + MTP llama.cpp stack on Strix Halo (gfx1151). It builds the
-# custom fork (charlie12345/rocmfp4-llama) from source and mounts /dev/kfd,
-# because the Q4_0_ROCMFP4 tensor types in the plunderstruck GGUF cannot load in
-# stock llama.cpp. The optional stock Vulkan stack is docker-compose.vulkan.yml.
+# Default llama.cpp OpenAI-compatible server on the Vulkan backend, for standard
+# GGUF models on an AMD Strix Halo APU (gfx1151). Plain `docker compose up -d`
+# starts this stack. Config lives in ./.env (cp .env.example .env). Models are
+# mounted read-only from MODELS_DIR. There is no default model: set LLM_MODEL
+# and LLM_CHAT_TEMPLATE in .env or the compose file fails at `up`/`config`.
 #
-# Compute runs on Vulkan (-dev Vulkan0), which the model card says beats ROCm for
-# ROCmFP4 here; ROCm is present only so the HIP-linked binary can start.
+# One service: llm - ghcr.io/ggml-org/llama.cpp:server-vulkan.
+# One pulled image, no build.
 #
-#   docker compose up -d
-#   docker compose logs -f llm
-#
-# Runtime and model configuration live in ./.env.
+# The custom ROCmFP4 + MTP fork (for plunderstruck's Qwen3.6 ROCmFP4 GGUFs) is
+# docker-compose.rocmfp4.yml; Laguna ROCmFPX is docker-compose.laguna-rocmfpx.yml.
+# All three are alternatives on port 8080 and must not run at the same time.
 
 services:
   llm:
-    build:
-      context: .
-      dockerfile: tools/Dockerfile.rocmfp4
-      args:
-        # One knob to move the ROCm SDK the image builds against: a TheRock dist
-        # version (tarball therock-dist-linux-<gfx>-<version>.tar.gz). Default is
-        # the last 7.13 nightly, the first line with gfx1151 in the support
-        # matrix. gfx1151 is the Strix Halo ISA.
-        THEROCK_VERSION: "${ROCMFP4_THEROCK_VERSION:-7.13.0a20260515}"
-        CMAKE_HIP_ARCHITECTURES: "${ROCMFP4_GFX:-gfx1151}"
-    container_name: llama-rocmfp4
+    image: ghcr.io/ggml-org/llama.cpp:server-vulkan
+    container_name: llama-vulkan
     restart: unless-stopped
-    # Fail this container instead of letting model, KV, and runtime allocations
-    # consume the host. Equal memory/swap limits disable additional swap.
-    mem_limit: "${ROCMFP4_MEMORY_LIMIT:-90g}"
-    memswap_limit: "${ROCMFP4_MEMORY_LIMIT:-90g}"
-    # ROCmFP4 needs BOTH nodes: /dev/dri for the Vulkan compute path, /dev/kfd
-    # because the HIP-linked binary initialises ROCm at startup. This is exactly
-    # the scope the optional stock Vulkan stack avoids; it is unavoidable here.
+    # Vulkan needs the render node only. No /dev/kfd, no ROCm, no privileged.
     devices:
       - /dev/dri:/dev/dri
-      - /dev/kfd:/dev/kfd
     group_add:
       - "${RENDER_GID:-990}"
       - "${VIDEO_GID:-44}"
-    # ROCm/HSA wants host IPC, an unconfined seccomp profile, and no locked-memory
-    # ceiling so it can pin large buffers in GTT (the 128 GB unified RAM).
-    ipc: host
-    security_opt:
-      - seccomp=unconfined
-    ulimits:
-      memlock: -1
     environment:
-      # No HSA_OVERRIDE_GFX_VERSION here: the image ships ROCm 7.13 (TheRock),
-      # where gfx1151 is natively in the support matrix. The override was only
-      # ever a workaround for the 7.2.x bases.
-      # Keep weights/KV in GTT, not the small VRAM carve-out. HIP side:
-      - GGML_HIP_ENABLE_UNIFIED_MEMORY=1
-      # Vulkan side (presence check: any value enables it).
+      # Force model weights into GTT (the 128 GB unified RAM), not the small BIOS
+      # VRAM carve-out. llama.cpp treats this as a PRESENCE check: ANY value (even
+      # 0) enables it, so it is set to 1 and left on by design. On gfx1151 the
+      # Vulkan backend is UMA and already prefers host-visible/GTT memory; this
+      # makes it explicit and guaranteed. Proof: scripts/verify-gtt.sh.
       - GGML_VK_PREFER_HOST_MEMORY=1
     volumes:
       - ${MODELS_DIR:-./models}:/models:ro
-    # Every server stack in this repo uses llama.cpp's standard host port 8080.
-    # The compose files are alternatives and must not run at the same time.
     ports:
-      - "${ROCMFP4_PORT:-8080}:8080"
+      - "${LLM_PORT:-8080}:8080"
+    # list form avoids shell-quoting issues; the image entrypoint is llama-server
     command:
       - --model
-      # fail loud at up/config if ROCMFP4_MODEL is blank
-      - /models/${ROCMFP4_MODEL:?set ROCMFP4_MODEL in .env to the ROCmFP4 GGUF path relative to MODELS_DIR}
+      # fail loud at `up`/`config` if LLM_MODEL is blank, instead of passing
+      # llama-server a bare /models/ directory and erroring cryptically at load
+      - /models/${LLM_MODEL:?set LLM_MODEL in .env to a GGUF file path relative to MODELS_DIR}
       - --alias
-      - ${ROCMFP4_ALIAS:-rocmfp4}
+      - ${LLM_ALIAS:-llm}
       - --host
       - 0.0.0.0
       - --port
       - "8080"
-      # run the math on Vulkan (RADV / KHR_coopmat), not the ROCm backend
-      - -dev
-      - Vulkan0
       - --n-gpu-layers
-      - "999"
+      - "${LLM_NGL:-99}"
       - --ctx-size
       # llama.cpp divides this total KV cache across the fixed server slots.
-      # Five slots at the native 262144-token model maximum need 1310720 total.
-      - "${ROCMFP4_CTX_TOTAL:-1310720}"
-      - -ctk
-      - "${ROCMFP4_KV_TYPE:-q8_0}"
-      - -ctv
-      - "${ROCMFP4_KV_TYPE:-q8_0}"
-      - -fa
-      - "on"
-      - -b
-      - "2048"
-      # ub 1024 is the measured prefill sweet spot on this build (llama-bench
-      # sweep, Vulkan0: 256->896, 512->1066, 1024->1195, 2048->902 t/s pp2048).
-      # The model card's "-ub 256" advice predates the int-dot shader toolchain.
-      - -ub
-      - "1024"
+      # Keep LLM_CTX_TOTAL = LLM_CTX_PER_SLOT * LLM_PARALLEL; the validator and
+      # /slots check documented in the README catch drift.
+      - "${LLM_CTX_TOTAL:-655360}"
       - --parallel
-      - "${ROCMFP4_PARALLEL:-5}"
+      # Five slots reserve one request for the parent while noob's four
+      # detached children are active.
+      - "${LLM_PARALLEL:-5}"
       # Fixed, equally sized slots make the per-request context contract exact.
       - --no-kv-unified
-      # force weights resident (into GTT) instead of mmap, so verify-gtt sees them
-      - --no-mmap
-      # MTP self-speculative decoding: the reason these builds exist. The draft
-      # runs on the model's own built-in MTP head, on the same Vulkan device.
-      - --spec-type
-      - draft-mtp
-      - --spec-draft-device
-      - Vulkan0
-      - --spec-draft-ngl
-      - all
-      - --spec-draft-type-k
-      - "${ROCMFP4_DRAFT_KV_TYPE:-q4_0}"
-      - --spec-draft-type-v
-      - "${ROCMFP4_DRAFT_KV_TYPE:-q4_0}"
-      - --spec-draft-n-max
-      - "5"
-      - --spec-draft-p-split
-      - "0.10"
       - --jinja
-      - --chat-template-file
-      - /models/${ROCMFP4_CHAT_TEMPLATE:?set ROCMFP4_CHAT_TEMPLATE in .env to the bundled jinja path relative to MODELS_DIR}
-      # this is a reasoning model; emit <think> in the deepseek reasoning format
-      - --reasoning-format
-      - deepseek
-      - --chat-template-kwargs
-      - '{"preserve_thinking": true}'
-      # The server prompt cache defaults to another 8 GiB. Five full context
-      # slots already cover the requested concurrency, so keep it disabled.
+      - --reasoning
+      - "off"
+      # The server's RAM prompt cache (prompt_save on slot reuse) hits
+      # "GGML_ASSERT(tensor->data != NULL)" and crashes the whole server on the
+      # SECOND request with this build (see logs). Off until a fixed build is pinned.
       - --cache-ram
       - "0"
-      # Disable context checkpoints. With draft-mtp on this ROCmFP4 Vulkan build,
-      # serializing the draft state crashes after prefill:
-      #   GGML_ASSERT(tensor->data != NULL && "tensor not allocated")
-      # in common_prompt_checkpoint::update_dft. That aborts the process, Docker
-      # restarts it, and clients see HTTP 503 "Loading model" until reload
-      # finishes. MTP decoding still works; only checkpoint save is skipped.
-      - --ctx-checkpoints
-      - "0"
-      - --checkpoint-every-n-tokens
-      - "-1"
-      # Vision (Qwen3-VL projector) is available but off by default. To enable,
-      # add: --mmproj /models/Qwen3.6-27b/mmproj-F32.gguf
+      # Per-model template file, like ROCMFP4_CHAT_TEMPLATE on the other stack.
+      # Some GGUFs embed a stale template (gemma needed the 2026-07-15 refresh),
+      # so every model keeps its jinja next to the GGUF and .env points here.
+      - --chat-template-file
+      - /models/${LLM_CHAT_TEMPLATE:?set LLM_CHAT_TEMPLATE in .env to a jinja file path relative to MODELS_DIR}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
       interval: 30s
       timeout: 5s
-      retries: 60
-      # first load of a 16.9 GB model with --no-mmap + MTP warmup is slow
-      start_period: 600s
+      retries: 40
+      start_period: 300s
     networks:
       - llmnet
 

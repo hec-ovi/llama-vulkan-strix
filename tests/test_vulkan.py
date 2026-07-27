@@ -1,4 +1,4 @@
-"""Invariants of docker-compose.vulkan.yml: optional stock Vulkan/GTT wiring.
+"""Invariants of docker-compose.yml: the default stock Vulkan/GTT wiring.
 
 Text-based so it runs with only pytest. CI additionally runs
 `docker compose config -q` (base and the tools profile) for full schema validation.
@@ -6,7 +6,7 @@ Text-based so it runs with only pytest. CI additionally runs
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-COMPOSE = (ROOT / "docker-compose.vulkan.yml").read_text()
+COMPOSE = (ROOT / "docker-compose.yml").read_text()
 # Active config only, so prose in comments (which mention /dev/kfd, privileged,
 # etc. to say we DON'T use them) never satisfies or trips an assertion.
 CODE = "\n".join(

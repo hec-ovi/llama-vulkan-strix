@@ -5,7 +5,7 @@ Benchmarks and run notes for the two 27B dense ROCmFP4 builds served through thi
 - [`plunderstruck/Qwen3.6-27B-MTP-ROCmFP4-GGUF`](https://huggingface.co/plunderstruck/Qwen3.6-27B-MTP-ROCmFP4-GGUF), file `Qwen3.6-27B-MTP-ROCmFP4-STRIX-imatrix-embF16-headQ6.gguf` (16.9 GB)
 - [`plunderstruck/Qwen3.6-27B-OBLITERATED-MTP-ROCmFP4-GGUF`](https://huggingface.co/plunderstruck/Qwen3.6-27B-OBLITERATED-MTP-ROCmFP4-GGUF), the uncensored [OBLITERATUS](https://huggingface.co/OBLITERATUS) base with a grafted MTP head, file `Qwen3.6-27B-OBLITERATED-MTP-ROCmFP4-STRIX-embF16-imatrix-headQ6.gguf` (16.9 GB)
 
-Both are dense 27B models: every token pays for all 27B parameters, so they run an order of magnitude slower than the 35B-A3B MoE (3B active). The OBLITERATED model is the default: set its `ROCMFP4_*` values in `.env` and run `docker compose up -d`.
+Both are dense 27B models: every token pays for all 27B parameters, so they run an order of magnitude slower than the 35B-A3B MoE (3B active). To serve one, set its `ROCMFP4_*` values in `.env` (examples are commented in `.env.example`) and run `docker compose -f docker-compose.rocmfp4.yml up -d --build`.
 
 ## llama-bench (pure batch throughput, no MTP)
 

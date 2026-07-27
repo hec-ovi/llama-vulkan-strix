@@ -78,7 +78,7 @@ scripts/verify-gtt.sh --min-gtt-mib 18000
 
 ## Reproduce
 
-Bring the stack up (see the [ROCmFP4 section](../README.md#rocmfp4--mtp-separate-stack) of the README). llama-bench ships inside the image:
+Bring the stack up (see the [ROCmFP4 section](../README.md#rocmfp4--mtp-optional-stack) of the README). llama-bench ships inside the image:
 
 ```bash
 docker run --rm --device /dev/dri --device /dev/kfd \
