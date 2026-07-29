@@ -6,6 +6,9 @@ name: llama-vulkan-strix
 # mounted read-only from MODELS_DIR. There is no default model: set LLM_MODEL
 # and LLM_CHAT_TEMPLATE in .env or the compose file fails at `up`/`config`.
 #
+# Per-model packages (MTP, sampling, KV type) live under compose/models/ and
+# are selected via COMPOSE_FILE in .env (see .env.example model blocks).
+#
 # One service: llm - ghcr.io/ggml-org/llama.cpp:server-vulkan.
 # One pulled image, no build.
 #

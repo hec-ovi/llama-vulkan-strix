@@ -1,5 +1,8 @@
 # local config (copied from .env.example)
 .env
+.env.bak
+# local compose merge (never commit a machine-specific override)
+docker-compose.override.yml
 
 # research store (may hold private findings); see .research/INDEX.md
 .research/

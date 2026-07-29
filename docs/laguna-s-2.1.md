@@ -1,10 +1,10 @@
-# laguna-s-2.1 (Q4_K_M) on Strix Halo
+# laguna-s-2.1 on Strix Halo
 
-Benchmarks and run notes for poolside's Laguna S 2.1, served through the default stock Vulkan stack (`docker-compose.yml`, stock `ghcr.io/ggml-org/llama.cpp:server-vulkan` image, no fork, no MTP). Measured 2026-07-22.
+Benchmarks and run notes for poolside's Laguna S 2.1, served through the default stock Vulkan stack (`docker-compose.yml` + `compose/models/laguna-s-2.1.yml`, stock `ghcr.io/ggml-org/llama.cpp:server-vulkan` image, no fork, no MTP). Measured 2026-07-22 on Q4_K_M; the current local package uses the same architecture with vcruz305 IQ4_XS (imatrix).
 
 ## The model
 
-[poolside's Laguna S 2.1](https://huggingface.co/poolside/Laguna-S-2.1): a 118B-total / 8B-active Mixture-of-Experts, 256 routed experts with top-10 routing plus a shared expert, 48 layers of which 12 are global attention and 36 sliding-window (512-token window, split rope bases). GQA with 8 KV heads and 128-wide K/V, YaRN-scaled context of 262,144 tokens in this GGUF (32x over the native 8,192). The file served here is `laguna-s-2.1-Q4_K_M.gguf`, 75 GB, imatrix-calibrated Q4_K_M.
+[poolside's Laguna S 2.1](https://huggingface.co/poolside/Laguna-S-2.1): a 118B-total / 8B-active Mixture-of-Experts, 256 routed experts with top-10 routing plus a shared expert, 48 layers of which 12 are global attention and 36 sliding-window (512-token window, split rope bases). GQA with 8 KV heads and 128-wide K/V, YaRN-scaled context of 262,144 tokens in this GGUF (32x over the native 8,192). The measured file was `laguna-s-2.1-Q4_K_M.gguf` (~75 GB). The package default is `Laguna-S-2.1-IQ4_XS` (vcruz305, official imatrix split).
 
 ## Test rig
 
@@ -40,6 +40,7 @@ scripts/verify-gtt.sh --min-gtt-mib 70000
 ## Reproduce
 
 ```bash
+# .env: uncomment the Laguna package (COMPOSE_FILE + model + template + ctx)
 docker compose up -d
 curl -fsS http://localhost:${LLM_PORT:-8080}/slots | python3 scripts/check_context_config.py .env --slots-json -
 python3 scripts/bench_server.py --url http://localhost:${LLM_PORT:-8080}
