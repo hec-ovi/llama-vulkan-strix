@@ -15,7 +15,8 @@ __pycache__/
 .ruff_cache/
 
 # model weights and run artifacts never live in git
-models/
+# Leading slash: only the repo-root models/ mount, not compose/models/
+/models/
 *.gguf
 
 # os
