@@ -1,7 +1,7 @@
 <h1 align="center">llama-vulkan-strix</h1>
 
 <p align="center">
-  <strong>llama.cpp GGUF servers for AMD Strix Halo. Standard GGUFs on the stock Vulkan image by default; custom ROCmFP4 + MTP and Laguna ROCmFPX stacks as options. No model is the standard: you pick yours in .env.</strong>
+  <strong>llama.cpp GGUF servers for AMD Strix Halo. Stock Vulkan for standard GGUFs; optional ROCmFP4 + MTP and Laguna ROCmFPX stacks for the custom formats. Pick a model in .env. Prefill, decode, and quality tables below are on this machine so you can choose what fits.</strong>
 </p>
 
 <p align="center">
@@ -15,15 +15,17 @@
 
 ## What this is
 
-A Docker Compose setup for serving GGUF models on gfx1151. Plain `docker compose up -d` pulls the stock `ghcr.io/ggml-org/llama.cpp:server-vulkan` image and serves whichever standard GGUF you point `LLM_MODEL` at in `.env`, on `:8080`. There is no default model in the repo; `.env.example` leaves paths blank and ships four comment/uncomment packages.
+Docker Compose for GGUF inference on gfx1151. `docker compose up -d` pulls `ghcr.io/ggml-org/llama.cpp:server-vulkan` and serves the GGUF you set in `.env` on `:8080`. Nothing is pre-selected: `.env.example` leaves model paths blank and lists packages you comment/uncomment.
 
-Two optional stacks cover models the stock image cannot load. `docker-compose.rocmfp4.yml` builds the custom ROCmFP4 + MTP fork for plunderstruck's Qwen3.6 ROCmFP4 GGUFs (first build is long). `docker-compose.laguna-rocmfpx.yml` is the separate Laguna Runtime V2 stack. All three are alternatives on port `8080`; run one at a time.
+Which package to run is a speed vs quality tradeoff. This README measures **prefill** (how fast a long prompt is ingested) and **decode** (how fast new tokens stream) on this Strix Halo box, plus quality vs original (KL, refusals, SWE / Terminal / tool scores from the model cards). Use those tables to pick a model; do not treat any row as the "default."
+
+Two extra compose files load formats the stock image cannot: `docker-compose.rocmfp4.yml` (plunderstruck Qwen3.6 ROCmFP4 + MTP, long first build) and `docker-compose.laguna-rocmfpx.yml` (Laguna Runtime V2). One stack at a time on port `8080`.
 
 ## Supported models
 
 | Stack | Compose | Models |
 |---|---|---|
-| Stock Vulkan (default) | `docker-compose.yml` + `compose/models/<package>.yml` | Four packages in `.env.example`: Qwen3.6-27B heretic-v2 Q8_0 (MTP), Qwen3.6-35B-A3B heretic Q8_0, Laguna S 2.1 IQ4_XS, Gemma 4 26B-A4B abliterated Q5_K_M. Any other standard GGUF also works if you set paths yourself. |
+| Stock Vulkan | `docker-compose.yml` + `compose/models/<package>.yml` | Packages in `.env.example`: Qwen3.6-27B heretic-v2 Q8_0 (MTP), Qwen3.6-35B-A3B heretic Q8_0, Laguna S 2.1 IQ4_XS, Gemma 4 26B-A4B abliterated Q5_K_M. Any other standard GGUF works if you set paths yourself. |
 | ROCmFP4 + MTP | `docker-compose.rocmfp4.yml` | plunderstruck Qwen3.6 ROCmFP4 GGUFs only (27B, 27B-OBLITERATED, 35B-A3B-MTP). Custom `Q4_0_ROCMFP4` tensors. |
 | Laguna ROCmFPX | `docker-compose.laguna-rocmfpx.yml` | Chadrock Laguna S 2.1 ROCmFP4 V4 GGUF only (pinned Ciru Runtime V2). |
 
@@ -161,11 +163,15 @@ docker compose -f docker-compose.laguna-rocmfpx.yml up -d --build
 
 ## Benchmarks
 
-Two different things live here: **quality vs original** (ablation + quant, from model cards / MMLU) and **served speed on this Strix Halo box** (where we have measurements).
+Use this section to pick a package. Nothing is ranked "best"; each table answers a different question.
+
+1. **Quality vs original (ablation / quant):** how close the uncensored or quantized weights stay to the full-precision base (KL, refusals, MMLU). Low KL means the brain is mostly intact.
+2. **Capability (model cards):** what the *original* models score on agentic coding (SWE, Terminal), tools (MCPMark), and hard STEM (LiveCodeBench, AIME). Approximate ceiling for the GGUF you serve.
+3. **Served speed on this box:** **prefill** = tokens/s while chewing the prompt (matters for long context and tools); **decode** = tokens/s while streaming the reply (what you feel in chat). Measured here on stock Vulkan and, separately, on the ROCmFP4 stack.
 
 ### Quality: ablation and quant vs original
 
-KL and refusal counts are from the heretic/abliteration authors (same decoding setup they used). MMLU is their re-run of original vs ablated at full precision before quant. Quant KL against BF16 for these exact files was **not re-measured on this box**; Q8_0 is treated as near-lossless in community KL tables, IQ4_XS / Q5_K_M trade more.
+KL and refusal counts are from the heretic/abliteration authors. MMLU is their re-run of original vs ablated at full precision before quant. Quant KL against BF16 for these exact files was not re-measured on this box; Q8_0 is near-lossless in community tables, IQ4_XS / Q5_K_M trade more.
 
 | Model (served quant) | Ablation KL vs original | Refusals ablated / original | MMLU ablated / original | Quant note |
 |---|---:|---|---|---|
@@ -195,7 +201,7 @@ These are the **upstream / original** scores (full precision harnesses). Heretic
 
 ### Served speed on this Strix Halo box (stock packages)
 
-Measured 2026-07-29 on idle Radeon 8060S (RADV `STRIX_HALO`), one request in flight, stock `server-vulkan`, 5 slots x 131072. Method: `scripts/bench_full.py` (one load per model). Prefill rows are best-of-3 fresh prompts (`cache_prompt=false`), 128 forced tokens. Decode averages are mean of 10 runs. Raw JSON: [docs/bench-results/](docs/bench-results/).
+Measured 2026-07-29, idle Radeon 8060S (RADV `STRIX_HALO`), one request in flight, stock `server-vulkan`, 5 slots x 131072. Method: `scripts/bench_full.py` (one load per model). Prefill: best-of-3, fresh prompts. Decode averages: mean of 10 runs. Higher prefill helps long prompts and tool dumps; higher decode feels snappier in interactive use. Raw JSON: [docs/bench-results/](docs/bench-results/).
 
 **Prefill + decode at no-prefill / 16k / 32k** (best-of-3):
 
