@@ -1,0 +1,47 @@
+# Qwen3.6-27B heretic-v2 Q8_0 (Native MTP preserved).
+# Use with the default stack:
+#   COMPOSE_FILE=docker-compose.yml:compose/models/qwen3.6-27b-heretic.yml
+#   docker compose up -d
+#
+# Uncomment the matching block in .env (model, template, ctx, parallel).
+# MTP is on: this GGUF keeps the 15 native MTP tensors.
+
+services:
+  llm:
+    command:
+      - --model
+      - /models/${LLM_MODEL:?set LLM_MODEL in .env to a GGUF file path relative to MODELS_DIR}
+      - --alias
+      - ${LLM_ALIAS:-llm}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --n-gpu-layers
+      - "${LLM_NGL:-99}"
+      - --ctx-size
+      - "${LLM_CTX_TOTAL:-655360}"
+      - --parallel
+      - "${LLM_PARALLEL:-5}"
+      - --no-kv-unified
+      - --jinja
+      - --reasoning
+      - "off"
+      - --cache-ram
+      - "0"
+      - --chat-template-file
+      - /models/${LLM_CHAT_TEMPLATE:?set LLM_CHAT_TEMPLATE in .env to a jinja file path relative to MODELS_DIR}
+      - --flash-attn
+      - "on"
+      # Native MTP self-speculation (15 heads preserved in this GGUF).
+      - --spec-type
+      - draft-mtp
+      - --spec-draft-n-max
+      - "5"
+      - --spec-draft-p-split
+      - "0.10"
+      # Checkpoints + draft-mtp have crashed this class of builds before.
+      - --ctx-checkpoints
+      - "0"
+      - --checkpoint-every-n-tokens
+      - "-1"

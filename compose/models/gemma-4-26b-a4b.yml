@@ -1,0 +1,40 @@
+# Gemma 4 26B-A4B It Abliterated Q5_K_M (SevenOfNine).
+# Use with the default stack:
+#   COMPOSE_FILE=docker-compose.yml:compose/models/gemma-4-26b-a4b.yml
+#   docker compose up -d
+#
+# Uncomment the matching block in .env.
+# Use the refreshed chat_template.jinja next to the GGUF (stale embedded
+# templates break tools/reasoning). No MTP on Gemma 4.
+
+services:
+  llm:
+    command:
+      - --model
+      - /models/${LLM_MODEL:?set LLM_MODEL in .env to a GGUF file path relative to MODELS_DIR}
+      - --alias
+      - ${LLM_ALIAS:-llm}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --n-gpu-layers
+      - "${LLM_NGL:-99}"
+      - --ctx-size
+      - "${LLM_CTX_TOTAL:-655360}"
+      - --parallel
+      - "${LLM_PARALLEL:-5}"
+      - --no-kv-unified
+      - --jinja
+      - --reasoning
+      - "off"
+      - --cache-ram
+      - "0"
+      - --chat-template-file
+      - /models/${LLM_CHAT_TEMPLATE:?set LLM_CHAT_TEMPLATE in .env to a jinja file path relative to MODELS_DIR}
+      - --flash-attn
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0

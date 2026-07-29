@@ -1,0 +1,46 @@
+# Laguna S 2.1 (vcruz305 IQ4_XS imatrix, or other standard Laguna GGUF).
+# Use with the default stack:
+#   COMPOSE_FILE=docker-compose.yml:compose/models/laguna-s-2.1.yml
+#   docker compose up -d
+#
+# Uncomment the matching block in .env.
+# Sampling values are Poolside's published fix for fabrication/looping;
+# q8 KV halves the 256k cache cost. No MTP on this model.
+
+services:
+  llm:
+    command:
+      - --model
+      - /models/${LLM_MODEL:?set LLM_MODEL in .env to a GGUF file path relative to MODELS_DIR}
+      - --alias
+      - ${LLM_ALIAS:-llm}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --n-gpu-layers
+      - "${LLM_NGL:-99}"
+      - --ctx-size
+      - "${LLM_CTX_TOTAL:-655360}"
+      - --parallel
+      - "${LLM_PARALLEL:-5}"
+      - --no-kv-unified
+      - --jinja
+      - --reasoning
+      - "off"
+      - --cache-ram
+      - "0"
+      - --chat-template-file
+      - /models/${LLM_CHAT_TEMPLATE:?set LLM_CHAT_TEMPLATE in .env to a jinja file path relative to MODELS_DIR}
+      - --flash-attn
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --temp
+      - "0.7"
+      - --top-p
+      - "0.95"
+      - --top-k
+      - "20"
