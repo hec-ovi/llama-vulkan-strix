@@ -1,7 +1,7 @@
 <h1 align="center">llama-vulkan-strix</h1>
 
 <p align="center">
-  <strong>llama.cpp GGUF servers for AMD Strix Halo. Stock Vulkan for standard GGUFs; optional ROCmFP4 + MTP and Laguna ROCmFPX stacks for the custom formats. Pick a model in .env. Prefill, decode, and quality tables below are on this machine so you can choose what fits.</strong>
+  <strong>Docker Compose for llama.cpp on AMD Strix Halo: Qwen, Gemma, and Laguna GGUFs (abliterated and quantized), with stock Vulkan, ROCmFP4 + MTP, and ROCmFPX. Parallel slots and context are per package in .env. Prefill, decode, and quality metrics below are measured on this rig so you can pick what fits.</strong>
 </p>
 
 <p align="center">
@@ -15,11 +15,11 @@
 
 ## What this is
 
-Docker Compose for GGUF inference on gfx1151. `docker compose up -d` pulls `ghcr.io/ggml-org/llama.cpp:server-vulkan` and serves the GGUF you set in `.env` on `:8080`. Nothing is pre-selected: `.env.example` leaves model paths blank and lists packages you comment/uncomment.
+Docker Compose packages for llama.cpp on gfx1151 (Strix Halo). Each model block in `.env` wires path, template, max context, and parallel concurrency. Stock stack: `docker compose up -d` pulls `ghcr.io/ggml-org/llama.cpp:server-vulkan` and serves the GGUF you pick on `:8080`. Packages cover abliterated/heretic and quantized GGUFs (Qwen3.6, Gemma 4 26B-A4B, Laguna S 2.1).
 
-Which package to run is a speed vs quality tradeoff. This README measures **prefill** (how fast a long prompt is ingested) and **decode** (how fast new tokens stream) on this Strix Halo box, plus quality vs original (KL, refusals, SWE / Terminal / tool scores from the model cards). Use those tables to pick a model; do not treat any row as the "default."
+Speed vs quality is your call. This README has **prefill** and **decode** on this box, plus quality vs original (KL, refusals) and capability scores from the model cards (SWE, Terminal, tools, STEM). Use those to choose a package.
 
-Two extra compose files load formats the stock image cannot: `docker-compose.rocmfp4.yml` (plunderstruck Qwen3.6 ROCmFP4 + MTP, long first build) and `docker-compose.laguna-rocmfpx.yml` (Laguna Runtime V2). One stack at a time on port `8080`.
+Custom formats the stock image cannot load: `docker-compose.rocmfp4.yml` (plunderstruck Qwen3.6 ROCmFP4 + MTP, long first build) and `docker-compose.laguna-rocmfpx.yml` (Laguna Runtime V2 / ROCmFPX). One stack at a time on port `8080`.
 
 ## Supported models
 
