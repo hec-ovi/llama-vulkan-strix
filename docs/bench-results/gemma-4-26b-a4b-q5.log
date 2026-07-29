@@ -1,0 +1,43 @@
+ Network llama-vulkan-strix_llmnet Creating 
+ Network llama-vulkan-strix_llmnet Created 
+ Container llama-vulkan Creating 
+ Container llama-vulkan Created 
+ Container llama-vulkan Starting 
+ Container llama-vulkan Started 
+prefill depth 64 ...
+  best prefill=361 decode=61.0 prompt_n=66
+prefill depth 16384 ...
+  best prefill=828 decode=50.4 prompt_n=18141
+prefill depth 32768 ...
+  best prefill=642 decode=45.0 prompt_n=36936
+decode avg no-prefill x10 ...
+  short decode 1/10: 60.6 t/s (prompt_n=87)
+  short decode 2/10: 60.7 t/s (prompt_n=75)
+  short decode 3/10: 60.4 t/s (prompt_n=75)
+  short decode 4/10: 60.0 t/s (prompt_n=75)
+  short decode 5/10: 60.7 t/s (prompt_n=75)
+  short decode 6/10: 60.2 t/s (prompt_n=87)
+  short decode 7/10: 60.1 t/s (prompt_n=87)
+  short decode 8/10: 60.9 t/s (prompt_n=87)
+  short decode 9/10: 60.5 t/s (prompt_n=75)
+  short decode 10/10: 60.8 t/s (prompt_n=75)
+  no-prefill decode mean=60.5 median=60.6 min=60.0 max=60.9
+decode avg 32k-cached x10 ...
+  32k cache fill: prompt_n=41274 cache_n=0 prefill=609 decode=43.5
+  32k cached probe: 43.7 t/s (prompt_n=1 cache_n=41273)
+  32k cached decode 2/10: 43.7 t/s (prompt_n=1 cache_n=41273)
+  32k cached decode 3/10: 43.6 t/s (prompt_n=1 cache_n=41273)
+  32k cached decode 4/10: 43.8 t/s (prompt_n=1 cache_n=41273)
+  32k cached decode 5/10: 43.6 t/s (prompt_n=1 cache_n=41273)
+  32k cached decode 6/10: 43.5 t/s (prompt_n=1 cache_n=41273)
+  32k cached decode 7/10: 43.3 t/s (prompt_n=1 cache_n=41273)
+  32k cached decode 8/10: 43.8 t/s (prompt_n=1 cache_n=41273)
+  32k cached decode 9/10: 43.6 t/s (prompt_n=1 cache_n=41273)
+  32k cached decode 10/10: 43.8 t/s (prompt_n=1 cache_n=41273)
+  cached-32k decode mean=43.6 median=43.6 cache_hit_mean=41273
+ Container llama-vulkan Stopping 
+ Container llama-vulkan Stopped 
+ Container llama-vulkan Removing 
+ Container llama-vulkan Removed 
+ Network llama-vulkan-strix_llmnet Removing 
+ Network llama-vulkan-strix_llmnet Removed 

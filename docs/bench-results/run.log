@@ -1,0 +1,38 @@
+======== 2026-07-29T08:51:12-03:00 START gemma-4-26b-a4b-q5 ========
+bench exit 0 for gemma-4-26b-a4b-q5
+======== 2026-07-29T08:57:03-03:00 START qwen3.6-27b-heretic-q8 ========
+======== 2026-07-29T08:57:34-03:00 START qwen3.6-27b-heretic-q8 ========
+bench exit 1 for qwen3.6-27b-heretic-q8
+======== 2026-07-29T09:09:06-03:00 START gemma-4-26b-a4b-q5 ========
+======== 2026-07-29T09:11:39-03:00 START qwen3.6-27b-heretic-q8 ========
+healthy qwen3.6-27b-heretic-q8 2026-07-29T09:12:00-03:00
+bench exit 143 qwen3.6-27b-heretic-q8
+FAILED 27b
+======== 2026-07-29T09:43:39-03:00 START laguna-s-2.1-iq4xs ========
+healthy laguna-s-2.1-iq4xs 2026-07-29T09:44:20-03:00
+bench exit 0 laguna-s-2.1-iq4xs
+  prefill:
+    no_prefill: prefill=125 decode=40.6 (n=66)
+    16k: prefill=352 decode=34.3 (n=18141)
+    32k: prefill=307 decode=30.7 (n=36936)
+  decode avg no-prefill: mean=38.8 median=38.7
+  decode avg 32k-cache: mean=30.3 median=30.3 cache_hit_mean=41273
+======== 2026-07-29T09:57:52-03:00 START qwen3.6-35b-heretic-q8 ========
+healthy qwen3.6-35b-heretic-q8 2026-07-29T09:58:12-03:00
+bench exit 0 qwen3.6-35b-heretic-q8
+  prefill:
+    no_prefill: prefill=143 decode=55.4 (n=65)
+    16k: prefill=940 decode=49.4 (n=18140)
+    32k: prefill=816 decode=45.3 (n=36935)
+  decode avg no-prefill: mean=55.2 median=55.1
+  decode avg 32k-cache: mean=44.4 median=44.4 cache_hit_mean=41269
+======== 2026-07-29T10:04:14-03:00 START gemma-4-26b-a4b-q5 ========
+healthy gemma-4-26b-a4b-q5 2026-07-29T10:04:35-03:00
+bench exit 0 gemma-4-26b-a4b-q5
+  prefill:
+    no_prefill: prefill=361 decode=61.0 (n=66)
+    16k: prefill=828 decode=50.4 (n=18141)
+    32k: prefill=642 decode=45.0 (n=36936)
+  decode avg no-prefill: mean=60.5 median=60.6
+  decode avg 32k-cache: mean=43.6 median=43.6 cache_hit_mean=41273
+======== 2026-07-29T10:11:24-03:00 ALL STOCK MODELS DONE (ROCmFP4 not run) ========

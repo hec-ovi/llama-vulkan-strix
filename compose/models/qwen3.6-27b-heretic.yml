@@ -40,8 +40,7 @@ services:
       - "5"
       - --spec-draft-p-split
       - "0.10"
-      # Checkpoints + draft-mtp have crashed this class of builds before.
+      # draft-mtp + prompt checkpoints abort:
+      #   GGML_ASSERT(tensor->data != NULL) in common_prompt_checkpoint::update_dft
       - --ctx-checkpoints
       - "0"
-      - --checkpoint-every-n-tokens
-      - "-1"

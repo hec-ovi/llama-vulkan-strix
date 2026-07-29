@@ -28,7 +28,7 @@ services:
       - --reasoning
       - "off"
       - --cache-ram
-      - "0"
+      - "8192"
       - --chat-template-file
       - /models/${LLM_CHAT_TEMPLATE:?set LLM_CHAT_TEMPLATE in .env to a jinja file path relative to MODELS_DIR}
       - --flash-attn

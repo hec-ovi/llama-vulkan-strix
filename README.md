@@ -193,27 +193,42 @@ These are the **upstream / original** scores (full precision harnesses). Heretic
 
 \* Gemma 4 **26B-A4B** agentic coding scores from the Qwen3.6-35B comparison table (Qwen blog / model card). Gemma **31B** is much stronger on SWE (e.g. 52.0 Verified) but is a different model. Laguna numbers from [Poolside Laguna S 2.1](https://poolside.ai/blog/introducing-laguna-s-2-1). Qwen numbers from the [27B](https://huggingface.co/Qwen/Qwen3.6-27B) and [35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) cards.
 
-### Served speed on this Strix Halo box
+### Served speed on this Strix Halo box (stock packages)
 
-Idle Radeon 8060S (RADV `STRIX_HALO`), one request in flight, `scripts/bench_server.py` style (fresh prompt, 128 forced tokens, best of 3) unless noted.
+Measured 2026-07-29 on idle Radeon 8060S (RADV `STRIX_HALO`), one request in flight, stock `server-vulkan`, 5 slots x 131072. Method: `scripts/bench_full.py` (one load per model). Prefill rows are best-of-3 fresh prompts (`cache_prompt=false`), 128 forced tokens. Decode averages are mean of 10 runs. Raw JSON: [docs/bench-results/](docs/bench-results/).
 
-| Model | Stack | Quant | MTP | Prefill 16k (t/s) | Prefill 32k (t/s) | Decode (t/s) |
-|---|---|---|:--:|---:|---:|---:|
-| Laguna S 2.1 | stock Vulkan | Q4_K_M (same class as local IQ4_XS) | no | **275** | **196** | **21.1 → 19.5** |
-| Qwen3.6-35B-A3B | ROCmFP4 fork | ROCmFP4 | yes | **810** | **707** | **105 → 101** |
-| Qwen3.6-27B | ROCmFP4 fork | ROCmFP4 | yes | **212** | (not run) | **~39** at 16k |
-| Qwen3.6-27B heretic Q8 | stock Vulkan | Q8_0 | yes (package) | **not measured** | **not measured** | **not measured** |
-| Qwen3.6-35B-A3B heretic Q8 | stock Vulkan | Q8_0 | no | **not measured** | **not measured** | **not measured** |
-| Gemma 4 26B-A4B abliterated | stock Vulkan | Q5_K_M | no | **not measured** | **not measured** | **not measured** |
+**Prefill + decode at no-prefill / 16k / 32k** (best-of-3):
 
-Laguna and ROCmFP4 rows were measured on this rig (see [docs/laguna-s-2.1.md](docs/laguna-s-2.1.md), [docs/qwen3.6-35b-a3b-mtp-rocmfp4.md](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md), [docs/qwen3.6-27b-mtp-rocmfp4.md](docs/qwen3.6-27b-mtp-rocmfp4.md)). The four stock-package models (heretic Q8s + Gemma Q5 + local Laguna IQ4_XS) do **not** yet have a full 16k/32k served matrix saved here for the exact files under `/home/hec/models/gguf`. Reproduce with:
+| Model | Quant | MTP | Prefill no / 16k / 32k (t/s) | Decode no / 16k / 32k (t/s) |
+|---|---|:--:|---|---|
+| Qwen3.6-27B heretic-v2 | Q8_0 | yes | **143 / 250 / 185** | **28.5 / 26.6 / 24.1** |
+| Laguna S 2.1 | IQ4_XS | no | **125 / 352 / 307** | **40.6 / 34.3 / 30.7** |
+| Qwen3.6-35B-A3B heretic | Q8_0 | no | **143 / 940 / 816** | **55.4 / 49.4 / 45.3** |
+| Gemma 4 26B-A4B abliterated | Q5_K_M | no | **361 / 828 / 642** | **61.0 / 50.4 / 45.0** |
+
+**Decode averages** (10 runs, mean):
+
+| Model | Decode mean, no prefill (t/s) | Decode mean at 32k cached (t/s) | Cache hit? |
+|---|---:|---:|---|
+| Qwen3.6-27B heretic-v2 Q8 | **24.5** (median 25.2) | **23.7** (3 cold samples)* | no (`--cache-ram 0` for MTP) |
+| Laguna S 2.1 IQ4_XS | **38.8** (median 38.7) | **30.3** (median 30.3) | yes (`cache_n` ~41k) |
+| Qwen3.6-35B-A3B heretic Q8 | **55.2** (median 55.1) | **44.4** (median 44.4) | yes |
+| Gemma 4 26B-A4B Q5 | **60.5** (median 60.6) | **43.6** (median 43.6) | yes |
+
+\* 27B keeps `--cache-ram 0` (MTP + prompt-cache path has crashed this class of builds). Its 32k decode average is from cold 32k samples, not true cache hits. Laguna / 35B / Gemma packages use `--cache-ram 8192` so 32k re-decode reuses KV.
+
+Reproduce one package (full suite, no reload mid-run):
 
 ```bash
-# after docker compose up -d and /health is ok
-python3 scripts/bench_server.py --url http://localhost:${LLM_PORT:-8080}
+# pick a package in .env, then:
+docker compose up -d
+# wait for /health
+python3 scripts/bench_full.py --url http://localhost:8080 --name my-run
+# or all stock packages in order (27B, Laguna, 35B, Gemma; no ROCmFP4):
+bash scripts/run_model_benches.sh
 ```
 
-Publisher-side decode only (not this rig): SevenOfNine reports **34.5 t/s** for Gemma Q5_K_M on an RTX 4080 Super with `-cmoe`.
+Optional ROCmFP4 stack numbers (older runs, not re-done in this suite) live in [docs/qwen3.6-35b-a3b-mtp-rocmfp4.md](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md) and [docs/qwen3.6-27b-mtp-rocmfp4.md](docs/qwen3.6-27b-mtp-rocmfp4.md).
 
 ## Layout
 
@@ -227,10 +242,13 @@ docker-compose.laguna-rocmfpx.yml  Laguna ROCmFPX Runtime V2 service
 scripts/gpu_mem.py                 amdgpu VRAM vs GTT counters
 scripts/verify-gtt.sh              wait for /health, assert model is in GTT
 scripts/bench_server.py            served prefill/decode by context depth
+scripts/bench_full.py              one-load full suite (prefill table + 10x decode avgs)
+scripts/run_model_benches.sh       stock packages in order (no ROCmFP4)
 scripts/check_context_config.py    ctx x parallel arithmetic + /slots check
 tools/Dockerfile.rocmfp4           ROCmFP4 fork build
 tools/Dockerfile.laguna-rocmfpx    pinned Laguna ROCmFPX Runtime V2 build
-docs/                              per-model run notes (ROCmFP4 + laguna measured)
+docs/                              per-model notes
+docs/bench-results/                measured JSON from this rig
 tests/                             compose invariants, packages, scripts
 ```
 

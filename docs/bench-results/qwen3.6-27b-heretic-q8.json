@@ -1,0 +1,70 @@
+{
+  "name": "qwen3.6-27b-heretic-q8",
+  "note": "partial: 32k-cached stopped after 2 cold samples (cache_n=0, --cache-ram 0). Full prefill table + 10x short decode complete.",
+  "prefill_table": [
+    {
+      "depth": 64,
+      "label": "no_prefill",
+      "prompt_n": 65,
+      "prefill_best": 143.0,
+      "decode_best": 28.5
+    },
+    {
+      "depth": 16384,
+      "label": "16k",
+      "prompt_n": 18140,
+      "prefill_best": 250.0,
+      "decode_best": 26.6
+    },
+    {
+      "depth": 32768,
+      "label": "32k",
+      "prompt_n": 36935,
+      "prefill_best": 185.0,
+      "decode_best": 24.1
+    }
+  ],
+  "decode_avg": {
+    "no_prefill": {
+      "mode": "no_prefill_decode_avg",
+      "rates": [
+        26.2,
+        25.2,
+        29.7,
+        25.3,
+        25.1,
+        24.2,
+        27.2,
+        16.4,
+        22.6,
+        23.3
+      ],
+      "decode_n": 10,
+      "decode_mean": 24.5,
+      "decode_median": 25.2,
+      "decode_min": 16.4,
+      "decode_max": 29.7
+    },
+    "cached_32k": {
+      "mode": "cached_32k_decode_avg",
+      "cache_works": false,
+      "fill": {
+        "prompt_n": 41273,
+        "cache_n": 0,
+        "prefill": 169.0,
+        "decode": 23.7
+      },
+      "rates": [
+        23.7,
+        23.7,
+        23.6
+      ],
+      "decode_n": 3,
+      "decode_mean": 23.67,
+      "decode_median": 23.7,
+      "decode_min": 23.6,
+      "decode_max": 23.7,
+      "cache_hit_mean": 0.0
+    }
+  }
+}
