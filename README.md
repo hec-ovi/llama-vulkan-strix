@@ -228,7 +228,21 @@ python3 scripts/bench_full.py --url http://localhost:8080 --name my-run
 bash scripts/run_model_benches.sh
 ```
 
-Optional ROCmFP4 stack numbers (older runs, not re-done in this suite) live in [docs/qwen3.6-35b-a3b-mtp-rocmfp4.md](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md) and [docs/qwen3.6-27b-mtp-rocmfp4.md](docs/qwen3.6-27b-mtp-rocmfp4.md).
+### ROCmFP4 stack (optional, earlier runs)
+
+Same box, measured 2026-07-09 on `docker-compose.rocmfp4.yml` (custom fork, Vulkan0, `-ub 1024`, MTP on, f16 KV, single slot in that run). Not re-run in the 2026-07-29 stock suite above. Detail and MTP A/Bs: [docs/qwen3.6-35b-a3b-mtp-rocmfp4.md](docs/qwen3.6-35b-a3b-mtp-rocmfp4.md), [docs/qwen3.6-27b-mtp-rocmfp4.md](docs/qwen3.6-27b-mtp-rocmfp4.md).
+
+**Served prefill/decode by depth** (best-of-3, `/completion`, 128 forced tokens):
+
+| Model | Quant | Prefill 2k / 8k / 16k / 32k (t/s) | Decode MTP 2k / 8k / 16k / 32k (t/s) |
+|---|---|---|---|
+| Qwen3.6-35B-A3B | ROCmFP4 | 714 / 865 / **810** / **707** | 119 / 114 / **105** / **101** |
+| Qwen3.6-27B | ROCmFP4 | 217 / 227 / **212** / - | 39.0 / 39.3 / **39.4** / - |
+| Qwen3.6-27B-OBLITERATED | ROCmFP4 | 213 / 221 / - / - | 37.0 / 39.2 / - / - |
+
+**llama-bench** pure batch (no MTP, `-ub 1024`): 35B pp2048 **1195** Vulkan / **1411** ROCm, tg128 71.1 / 63.4; dense 27B pp2048 ~294 Vulkan / ~342 ROCm, tg128 ~13.8 / ~13.5.
+
+MTP on Vulkan costs ~15% prefill and roughly doubles decode vs no-MTP on the 35B (69.6 → 119 t/s at 2k). Dense 27B decode is content-dependent (~23-39 t/s); without MTP base tg is ~14 t/s.
 
 ## Layout
 
